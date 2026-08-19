@@ -65,6 +65,12 @@ export type OccurrenceAction =
   | { type: "edit"; origin: "rule"; recurrenceId: number; start: number; end?: number; ruleId?: string }
   // CANCEL ALL not-yet-ended DEFINITE occurrences (v0.2.240) — the block title's action.
   | { type: "cancelAll" }
+  // CANCEL / DELETE all FUTURE occurrences of a RULE series (v0.2.341) — the occurrence right-click menu's
+  // two bulk series-tail actions, from `recurrenceId` forward (inclusive). `ruleId` set ⇒ an additional
+  // `series[]` entry; absent ⇒ the primary `repeat`. CANCEL keeps the next ≤7 as struck ghosts then ends
+  // the series; DELETE hard-truncates the whole tail. Only ever dispatched for an `origin:"rule"` row.
+  | { type: "cancelAllFuture"; recurrenceId: number; ruleId?: string }
+  | { type: "deleteAllFuture"; recurrenceId: number; ruleId?: string }
   // SET the PRIMARY rule from the add-slot field (v0.2.235) — "12h daily", "daily", "weekdays 9h", etc.
   // `start`/`end` (when a time was also given) become the rule ANCHOR; absent ⇒ anchored at now.
   | { type: "repeat"; repeat: Recurrence; start?: number; end?: number }
@@ -231,11 +237,16 @@ export function Zero0Occurrences({
       // v0.2.294 cancel — both Loris asks): editing re-anchors onto the occurrence's own day so history
       // stays put, and cancelling is a fully reversible tombstone (restore always offered), so there's no
       // reason to lock either to the future.
+      // A RULE row (a repeating-series instance) also offers the two bulk series-tail actions (v0.2.341),
+      // matching the dayline/calendar occurrence menu: cancel/delete this instance AND everything after it.
+      const isRule = r.origin === "rule"
       const items: MenuItem[] = [
         { type: "item", id: "edit", label: "Edit time" },
         { type: "item", id: r.cancelled ? "restore" : "cancel", label: r.cancelled ? "Restore" : "Cancel" },
       ]
+      if (isRule) items.push({ type: "item", id: "cancelFuture", label: "Cancel all future occurrences" })
       items.push({ type: "item", id: "delete", label: "Delete", danger: true })
+      if (isRule) items.push({ type: "item", id: "deleteFuture", label: "Delete all future occurrences", danger: true })
       setMenu({
         items,
         x: ev.clientX,
@@ -243,7 +254,9 @@ export function Zero0Occurrences({
         onSelect: (id) => {
           if (id === "edit") startEdit(r)
           else if (id === "cancel" || id === "restore") dispatchRowAction(r, "cancel")
+          else if (id === "cancelFuture") onAction(entity, { type: "cancelAllFuture", recurrenceId: r.recurrenceId!, ruleId: r.ruleId })
           else if (id === "delete") dispatchRowAction(r, "delete")
+          else if (id === "deleteFuture") onAction(entity, { type: "deleteAllFuture", recurrenceId: r.recurrenceId!, ruleId: r.ruleId })
         },
       })
     },

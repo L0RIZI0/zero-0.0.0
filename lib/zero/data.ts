@@ -2643,6 +2643,98 @@ export function deleteRuleOccurrence(id: string, recurrenceId: number, ruleId?: 
 }
 
 /**
+ * "CANCEL / DELETE all FUTURE occurrences" of a recurrence RULE (v0.2.341) — the two bulk series-tail
+ * actions on the occurrence right-click menu (dayline + calendar). Both act on ONE rule (the primary
+ * `repeat` when `ruleId` is absent, else the matching `series[]` entry) from `recurrenceId` FORWARD,
+ * INCLUSIVE of the clicked instance ("this and following"), leaving earlier occurrences untouched.
+ *
+ * DELETE-future ({@link deleteFutureRuleOccurrences}) is a hard truncation: it bounds the rule's `until`
+ * to just before the clicked day, so the clicked instance and every later one stop projecting entirely
+ * (gone from both dayline + calendar rails and the §0 block).
+ *
+ * CANCEL-future ({@link cancelFutureRuleOccurrences}) is a "wind down": the next up-to-`keep` (=7)
+ * occurrences from the clicked one stay VISIBLE as struck-through 22% GHOSTS (one `cancelled` exception
+ * per day — the SAME rendering as a single cancel, v0.2.340), and the rule's `until` is bounded to the
+ * LAST of those kept days so everything AFTER the 7th is removed. A cancelled tail therefore reads as
+ * "these next few are called off" and then simply ends.
+ */
+const CANCEL_FUTURE_KEEP = 7
+
+/** Up to `cap` upcoming day-keys of ONE rule (primary = `ruleId` undefined) from `fromDay` inclusive. */
+function futureRuleDayKeys(stored: Entity, ruleId: string | undefined, fromDay: number, cap: number): number[] {
+  return projectOccurrences({ id: stored.id, schedule: stored.schedule }, fromDay, cap, { from: fromDay })
+    .filter((r) => r.origin === "rule" && r.ruleId === ruleId && r.recurrenceId != null)
+    .map((r) => r.recurrenceId!)
+}
+
+export function cancelFutureRuleOccurrences(
+  id: string,
+  recurrenceId: number,
+  ruleId?: string,
+  keep = CANCEL_FUTURE_KEEP,
+): boolean {
+  const stored = byId.get(id)
+  if (!stored?.schedule) return false
+  if (ruleId == null && !stored.schedule.repeat) return false
+  // The next up-to-`keep` occurrences (clicked one first) become struck ghosts; the rule ends at the last.
+  const dayKeys = futureRuleDayKeys(stored, ruleId, recurrenceId, keep)
+  if (dayKeys.length === 0) return false
+  const lastKept = dayKeys[dayKeys.length - 1]
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  if (ruleId != null) {
+    const series = sched.series ?? []
+    const idx = series.findIndex((sr) => sr.id === ruleId)
+    if (idx === -1) return false
+    const sr = series[idx]
+    const exceptions = { ...(sr.exceptions ?? {}) }
+    for (const k of dayKeys) exceptions[k] = { ...(exceptions[k] ?? {}), cancelled: true }
+    const nextSr: SeriesRule = { ...sr, exceptions, repeat: { ...sr.repeat, until: lastKept } }
+    sched.series = series.map((s, i) => (i === idx ? nextSr : s))
+  } else {
+    const exceptions = { ...(sched.exceptions ?? {}) }
+    for (const k of dayKeys) exceptions[k] = { ...(exceptions[k] ?? {}), cancelled: true }
+    sched.exceptions = exceptions
+    sched.repeat = { ...sched.repeat!, until: lastKept }
+  }
+  resyncPrimary(sched) // NEXT may have changed (v0.2.247)
+  const entity = mutable(stored)
+  entity.schedule = sched
+  logOccurrence(entity, `cancelled from · ${fmtOccDay(recurrenceId)}`)
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
+}
+
+export function deleteFutureRuleOccurrences(id: string, recurrenceId: number, ruleId?: string): boolean {
+  const stored = byId.get(id)
+  if (!stored?.schedule) return false
+  if (ruleId == null && !stored.schedule.repeat) return false
+  // Bound the rule the ms BEFORE the clicked day-key so the clicked instance + everything after it (a day
+  // key IS local midnight, so `dayStart > until` fires for the clicked day and beyond) stop projecting.
+  const until = recurrenceId - 1
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  if (ruleId != null) {
+    const series = sched.series ?? []
+    const idx = series.findIndex((sr) => sr.id === ruleId)
+    if (idx === -1) return false
+    sched.series = series.map((s, i) => (i === idx ? { ...s, repeat: { ...s.repeat, until } } : s))
+  } else {
+    sched.repeat = { ...sched.repeat!, until }
+  }
+  resyncPrimary(sched) // NEXT may have changed (v0.2.247)
+  const entity = mutable(stored)
+  entity.schedule = sched
+  logOccurrence(entity, `deleted from · ${fmtOccDay(recurrenceId)}`)
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
+}
+
+/**
  * CANCEL ALL DEFINITE occurrences (v0.2.240) — the definite-list "cancel all" title action. Marks every
  * not-yet-ended definite span cancelled (a struck, per-row-restorable tombstone); already-past ones are
  * left untouched (you can't cancel history, matching the per-row gate). Only the DEFINITE layer is

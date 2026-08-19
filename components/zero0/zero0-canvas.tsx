@@ -57,6 +57,8 @@ import {
   setRuleOccurrenceCancelled,
   deleteOccurrence,
   deleteRuleOccurrence,
+  cancelFutureRuleOccurrences,
+  deleteFutureRuleOccurrences,
   setRuleOccurrenceTime,
   setDefiniteOccurrenceTime,
   cancelAllDefiniteOccurrences,
@@ -1872,6 +1874,14 @@ export function Zero0Canvas() {
       } else if (action.type === "cancelAll") {
         // "cancel all" on the one-off list (v0.2.240) — cancels every not-yet-ended definite occurrence.
         cancelAllDefiniteOccurrences(e.id)
+      } else if (action.type === "cancelAllFuture") {
+        // "cancel all future occurrences" of a rule series (v0.2.341) — the next ≤7 from the clicked
+        // instance stay as struck ghosts, everything after the 7th is truncated off the series.
+        cancelFutureRuleOccurrences(e.id, action.recurrenceId, action.ruleId)
+      } else if (action.type === "deleteAllFuture") {
+        // "delete all future occurrences" of a rule series (v0.2.341) — hard-truncates the rule at the
+        // clicked instance so it + every later occurrence stop projecting on both rails.
+        deleteFutureRuleOccurrences(e.id, action.recurrenceId, action.ruleId)
       }
       bump()
     },
@@ -1882,7 +1892,7 @@ export function Zero0Canvas() {
   // for the §0 RECORDED SESSIONS list (and the dayline recorded ticks). Both actions are keyed by the
   // session's `anchorId` (the fold's correction handle) and route to the append-only log writers:
   //   • editSession   → appends a `session-edit` overlay carrying the corrected start/end.
-  //   • deleteSession → appends a `session-delete` tombstone.
+  //   • deleteSession �� appends a `session-delete` tombstone.
   //   • addSession    ��� appends a `session` Instant (v0.2.294) so the fold materializes a new anchored
   //                     `via:"play"` session — for logging work done OUTSIDE Zero. The writer clamps
   //                     start ≤ now / end ≥ start; both bounds are passed (a manual session is closed).
@@ -2096,11 +2106,17 @@ export function Zero0Canvas() {
       ev.stopPropagation()
       const e = getEntity(entityId)
       if (!e) return
+      // A RULE occurrence (a repeating series) additionally offers the two bulk series-tail actions
+      // (v0.2.341): "Cancel/Delete all future occurrences" — this instance and everything after it.
+      // A definite one-off has no "future occurrences", so those items are omitted there.
+      const isRule = occ.origin === "rule"
       const items: MenuItem[] = [
         { type: "item", id: "edit", label: "Edit time" },
         { type: "item", id: "cancel", label: "Cancel" },
       ]
+      if (isRule) items.push({ type: "item", id: "cancelFuture", label: "Cancel all future occurrences" })
       items.push({ type: "item", id: "delete", label: "Delete", danger: true })
+      if (isRule) items.push({ type: "item", id: "deleteFuture", label: "Delete all future occurrences", danger: true })
       showMenu(items, ev.clientX, ev.clientY, (id) => {
         if (id === "edit") {
           navigateTo(entityId) // open the entity; per-occurrence time editing lives in its §0 block
@@ -2111,6 +2127,8 @@ export function Zero0Canvas() {
               ? { type: "cancel", origin: "rule", recurrenceId: occ.recurrenceId!, cancelled: true, ruleId: occ.ruleId }
               : { type: "cancel", origin: "definite", primary: occ.occIndex === -1, occIndex: occ.occIndex, cancelled: true },
           )
+        } else if (id === "cancelFuture") {
+          runScheduleAction(e, { type: "cancelAllFuture", recurrenceId: occ.recurrenceId!, ruleId: occ.ruleId })
         } else if (id === "delete") {
           runScheduleAction(
             e,
@@ -2118,6 +2136,8 @@ export function Zero0Canvas() {
               ? { type: "delete", origin: "rule", recurrenceId: occ.recurrenceId!, ruleId: occ.ruleId }
               : { type: "delete", origin: "definite", primary: occ.occIndex === -1, occIndex: occ.occIndex },
           )
+        } else if (id === "deleteFuture") {
+          runScheduleAction(e, { type: "deleteAllFuture", recurrenceId: occ.recurrenceId!, ruleId: occ.ruleId })
         }
       })
     },
