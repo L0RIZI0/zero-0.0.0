@@ -1003,6 +1003,10 @@ export function Zero0Calendar({
                     // is active so the highlight fade (opacity-40) still wins, and lifted to full while THIS
                     // entity is hovered (v0.2.334) — hovering any of its blocks reveals all its faint ones.
                     const autoOpacity = r.bar.auto && !dim && hoverId !== r.bar.id ? 0.6 : undefined
+                    // CANCELLED occurrence (v0.2.340, Loris) — a per-instance cancel keeps the block but
+                    // renders it as a struck-through 22% GHOST (title + glyph struck, body faded) instead
+                    // of dropping it. Overrides autoOpacity so a cancelled auto-block still reads as struck.
+                    const occCancelled = !!r.bar.cancelled
                     const showTime = r.bh >= LABEL_TIME_H
                     const g = glyphFor(r.bar.id)
                     // The GLYPH spins only on the ACTUALLY-ongoing block, not on every block of an ongoing
@@ -1070,7 +1074,7 @@ export function Zero0Calendar({
                           // white in light mode, black in dark mode. Roots/top-level blocks keep no border.
                           r.depth > 0 && "border border-white dark:border-black",
                         )}
-                        style={{ left: r.bx, top: r.by, width: r.bw, height: r.bh, opacity: autoOpacity, touchAction: movable ? "none" : undefined }}
+                        style={{ left: r.bx, top: r.by, width: r.bw, height: r.bh, opacity: occCancelled ? 0.22 : autoOpacity, touchAction: movable ? "none" : undefined }}
                         title={`${r.bar.title} · ${liveRange}`}
                       >
                         {/* FILL LAYER (v0.2.316) — carries the accent fill, the accent glow/hairline AND
@@ -1107,7 +1111,7 @@ export function Zero0Calendar({
                                 kind={g.kind}
                                 filled={g.filled}
                                 done={g.showCheck}
-                                cancelled={g.cancelled}
+                                cancelled={g.cancelled || occCancelled}
                                 requested={g.requested}
                                 scheduled={g.scheduled}
                                 ongoing={glyphOngoing}
@@ -1115,7 +1119,12 @@ export function Zero0Calendar({
                                 className="h-3 w-3 shrink-0"
                               />
                             )}
-                            <span className="whitespace-nowrap text-[10px] font-medium leading-none rotate-180 [writing-mode:vertical-rl]">
+                            <span
+                              className={cn(
+                                "whitespace-nowrap text-[10px] font-medium leading-none rotate-180 [writing-mode:vertical-rl]",
+                                occCancelled && "line-through",
+                              )}
+                            >
                               {r.bar.title}
                             </span>
                           </span>
@@ -1134,16 +1143,16 @@ export function Zero0Calendar({
                                 <Zero0Glyph
                                   kind={g.kind}
                                   filled={g.filled}
-                                  done={g.showCheck}
-                                  cancelled={g.cancelled}
-                                  requested={g.requested}
-                                  scheduled={g.scheduled}
-                                  ongoing={glyphOngoing}
-                                  flip180={g.glyphFlip180}
-                                  className="mt-[1px] h-3 w-3 shrink-0"
+                                done={g.showCheck}
+                                cancelled={g.cancelled || occCancelled}
+                                requested={g.requested}
+                                scheduled={g.scheduled}
+                                ongoing={glyphOngoing}
+                                flip180={g.glyphFlip180}
+                                className="mt-[1px] h-3 w-3 shrink-0"
                                 />
                               )}
-                              <span className="line-clamp-2 min-h-0 break-words text-[10px] font-medium">
+                              <span className={cn("line-clamp-2 min-h-0 break-words text-[10px] font-medium", occCancelled && "line-through")}>
                                 {r.bar.title}
                               </span>
                             </span>
@@ -1193,6 +1202,7 @@ export function Zero0Calendar({
                     const g = glyphFor(c.bar.id)
                     // Spin only when THIS chip's bar is itself live (v0.2.334) — same per-bar gate as blocks.
                     const chipGlyphOngoing = g?.ongoing && (!!c.bar.ongoing || !!c.bar.openEnded)
+                    const chipCancelled = !!c.bar.cancelled
                     const chipRange =
                       editPreview?.key === c.bar.key ? rangeText(editPreview.start, editPreview.end) : c.bar.range
                     return (
@@ -1219,6 +1229,7 @@ export function Zero0Calendar({
                           // Faint ENTITY-ACCENT border (v0.2.319) instead of the neutral --border, tying the
                           // chip to its block's color; kept faint via a color-mix with transparent.
                           borderColor: `color-mix(in oklab, ${accent} 55%, transparent)`,
+                          opacity: chipCancelled ? 0.22 : undefined,
                         }}
                         title={`${c.bar.title} · ${chipRange}`}
                       >
@@ -1232,7 +1243,7 @@ export function Zero0Calendar({
                                 kind={g.kind}
                                 filled={g.filled}
                                 done={g.showCheck}
-                                cancelled={g.cancelled}
+                                cancelled={g.cancelled || chipCancelled}
                                 requested={g.requested}
                                 scheduled={g.scheduled}
                                 ongoing={chipGlyphOngoing}
@@ -1243,7 +1254,9 @@ export function Zero0Calendar({
                           ) : (
                             <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: accent }} />
                           )}
-                          <span className="min-w-0 truncate text-[10px] text-foreground">{c.bar.title}</span>
+                          <span className={cn("min-w-0 truncate text-[10px] text-foreground", chipCancelled && "line-through")}>
+                            {c.bar.title}
+                          </span>
                           <span className="shrink-0 text-[9px] tabular-nums text-muted-foreground">{chipRange}</span>
                         </span>
                       </button>

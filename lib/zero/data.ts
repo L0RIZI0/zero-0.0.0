@@ -1199,6 +1199,11 @@ export type TimelineOccurrence = Entity & {
     /** (end ?? start) >= now — gates Edit/Cancel (can't re-time/cancel history). */
     cancellable: boolean
   }
+  /** This occurrence was CANCELLED — a per-instance override struck it out. It STILL renders (as a
+   *  struck-through, 22%-opacity GHOST on both the dayline and calendar, v0.2.340) rather than
+   *  vanishing, so a called-off instance stays visible + restorable. Set only for dayline occurrences
+   *  from `getDaylineOccurrences`. */
+  cancelled?: boolean
 }
 
 /** Local midnight (epoch ms) for the day containing `epoch`. */
@@ -1365,7 +1370,8 @@ export function getTimelineOccurrences(
  * `repeatAnchor` decoupling (.247) show correctly on the dayline — the old walker was blind to all three.
  *
  * Walks the whole tree; for each timed entity projects its occurrences windowed to [lo, hi] (past-capable),
- * skips cancelled ones (they're struck in §0; a ghost tick on the dayline would just be noise), and
+ * KEEPS cancelled ones (v0.2.340, Loris) — they carry `cancelled` so both rails render them as a
+ * struck-through 22% ghost instead of vanishing (a per-instance cancel should stay visible), and
  * synthesizes a single-instance `TimelineOccurrence` per record so the existing dayline geometry
  * (ongoing / closed / point / sleep-sky / fades) keeps working unchanged. Each carries `occRef` so a
  * top-tick right-click can open the per-occurrence menu.
@@ -1376,7 +1382,8 @@ export function getDaylineOccurrences(lo: number, hi: number, now: number = Date
     const s = e.schedule
     if (!s) continue
     for (const rec of projectOccurrences({ id: e.id, schedule: s }, now, 10, { from: lo, until: hi })) {
-      if (rec.cancelled) continue
+      // NOTE (v0.2.340): cancelled recs are no longer skipped — they flow through carrying `cancelled`
+      // so both rails paint a struck-through 22% ghost (per Loris: a cancelled instance stays visible).
       // Clip to the window (definite scalar/plannedOccurrences aren't window-bounded by the projector).
       if (rec.start > hi || (rec.end ?? rec.start) < lo) continue
       // Single-instance schedule: strip the recurrence machinery and pin this instance's own start/end so
@@ -1399,6 +1406,7 @@ export function getDaylineOccurrences(lo: number, hi: number, now: number = Date
         ...e,
         schedule: instSchedule,
         occKey,
+        cancelled: rec.cancelled,
         occRef: {
           origin: rec.origin,
           occIndex: rec.occIndex,

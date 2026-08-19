@@ -435,6 +435,12 @@ interface DaylineBar {
    */
   occRef?: NonNullable<TimelineOccurrence["occRef"]>
   /**
+   * PLANNED bars: this occurrence was CANCELLED (per-instance override). Rather than being dropped
+   * (pre-v0.2.340 behaviour), it renders as a 22%-opacity GHOST tick so a called-off instance stays
+   * visible on the rail — the dayline mirror of the calendar's struck-through ghost block.
+   */
+  cancelled?: boolean
+  /**
    * ABSOLUTE epoch bounds of this occurrence (v0.2.286) — its start and effective end in ms,
    * carried so an edge / move DRAG can map a pixel delta straight back to a concrete new time
    * and commit it through the occurrence writers. Set on every PLANNED bar; `startMs` is absent
@@ -745,6 +751,8 @@ export function Zero0Dayline({
         sky: isSleepSpan ? sleepSkyBackground(occ.occKey) : undefined,
         // Per-occurrence dispatch identity for the top-rail right-click menu (v0.2.249).
         occRef: occ.occRef,
+        // Cancelled per-instance ⇒ render a 22% ghost tick, not vanish (v0.2.340).
+        cancelled: occ.cancelled,
         // Absolute span (v0.2.286) — feeds the drag re-time. `st` is null only for an end-only
         // tick (never edge-editable); `en` is the effective end computed just above.
         startMs: st ?? undefined,
@@ -2378,7 +2386,9 @@ export function Zero0Dayline({
                   // paint at a flat 0.8 (a hair softer than solid, so "intent" reads distinct from
                   // recorded activity without the old dynamic coverage math, which was retired). Every
                   // other rail (access / recorded / middle spine) stays fully solid.
-                  const tickOpacity = lit || isHot ? 1 : p.track === "planned" ? 0.8 : 1
+                  // CANCELLED occurrence (v0.2.340) ⇒ a 22% GHOST tick, overriding the normal opacity
+                  // (even a hover only lifts a live tick — a cancelled one stays faint to read as struck).
+                  const tickOpacity = p.cancelled ? 0.22 : lit || isHot ? 1 : p.track === "planned" ? 0.8 : 1
                   // PLANNED INSTANT — a small FILLED instant glyph (the down-triangle) with the
                   // entity title beside it, both in the entity's color. The glyph is nudged left
                   // half its width so its center sits exactly on the instant's time; the title
@@ -2426,8 +2436,10 @@ export function Zero0Dayline({
                             zIndex: lit || isHot ? 16 : 8,
                           }}
                         >
-                          <Zero0Glyph kind="instant" filled className="-ml-1.5 h-3 w-3 shrink-0" />
-                          <span className="text-[10px] leading-none tracking-tight">{p.title}</span>
+                          <Zero0Glyph kind="instant" filled cancelled={p.cancelled} className="-ml-1.5 h-3 w-3 shrink-0" />
+                          <span className={cn("text-[10px] leading-none tracking-tight", p.cancelled && "line-through")}>
+                            {p.title}
+                          </span>
                         </button>
                       </div>
                     )

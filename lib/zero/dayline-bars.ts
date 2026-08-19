@@ -57,6 +57,9 @@ export interface CalBar {
   /** RECORDED only: true when this session was an AUTO play (ongoing-on-enter), vs a deliberate Play.
    *  The dayline EXCLUDES autos from its recorded rail, but the calendar SHOWS them dimmed (v0.2.332). */
   auto?: boolean
+  /** PLANNED only: this occurrence was CANCELLED (per-instance override). Renders as a struck-through,
+   *  22%-opacity ghost block/chip rather than vanishing (v0.2.340). */
+  cancelled?: boolean
 }
 
 /** The entity label shown on a bar — web resources use their cropped display title (mirror of the
@@ -155,6 +158,7 @@ export function getCalendarBars(lo: number, hi: number, now: number = Date.now()
           ? `${rangeText(st!, en, s.repeat)} · ongoing`
           : rangeText(st!, en, s.repeat),
       occRef: occ.occRef,
+      cancelled: occ.cancelled,
     })
   }
 
