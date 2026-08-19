@@ -1198,6 +1198,9 @@ export type TimelineOccurrence = Entity & {
     ruleId?: string
     /** (end ?? start) >= now — gates Edit/Cancel (can't re-time/cancel history). */
     cancellable: boolean
+    /** This occurrence is currently CANCELLED (v0.2.343) — lets the dayline/calendar occurrence menu show
+     *  "Restore" instead of "Cancel" and dispatch the toggle, mirroring the §0 chip menu. */
+    cancelled?: boolean
   }
   /** This occurrence was CANCELLED — a per-instance override struck it out. It STILL renders (as a
    *  struck-through, 22%-opacity GHOST on both the dayline and calendar, v0.2.340) rather than
@@ -1413,6 +1416,7 @@ export function getDaylineOccurrences(lo: number, hi: number, now: number = Date
           recurrenceId: rec.recurrenceId,
           ruleId: rec.ruleId,
           cancellable: (rec.end ?? rec.start) >= now,
+          cancelled: rec.cancelled,
         },
       })
     }

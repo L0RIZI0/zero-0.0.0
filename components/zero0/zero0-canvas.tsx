@@ -2104,8 +2104,9 @@ export function Zero0Canvas() {
   // `runScheduleAction` using the occurrence's own dispatch identity (`occ`). EDIT navigates to the entity
   // (the inline time editor lives in the §0 block; the dayline hosts no text input this pass) — every other
   // verb acts in place. EDIT time + CANCEL are BOTH available for ANY occurrence incl. PAST (v0.2.287 edit,
-  // v0.2.294 cancel) — mirrors the §0 block. Cancel is a reversible tombstone so it needn't be future-gated;
-  // a visible dayline tick is never already-cancelled (cancelled occurrences don't render), so "Cancel".
+  // v0.2.294 cancel) — mirrors the §0 block. Cancel is a reversible tombstone so it needn't be future-gated.
+  // Since v0.2.340 a cancelled occurrence STILL renders (struck 22% ghost), so the tick CAN be already
+  // cancelled — the verb toggles to "Restore" then (v0.2.343), exactly like the §0 chip menu.
   const openOccurrenceMenu = useCallback(
     (entityId: string, occ: DaylineOccRef, ev: React.MouseEvent) => {
       ev.preventDefault()
@@ -2121,7 +2122,7 @@ export function Zero0Canvas() {
       const showFuture = isRule || hasLaterDefiniteOccurrence(entityId, occ.occIndex)
       const items: MenuItem[] = [
         { type: "item", id: "edit", label: "Edit time" },
-        { type: "item", id: "cancel", label: "Cancel" },
+        { type: "item", id: "cancel", label: occ.cancelled ? "Restore" : "Cancel" },
       ]
       if (showFuture) items.push({ type: "item", id: "cancelFuture", label: "Cancel all future occurrences" })
       items.push({ type: "item", id: "delete", label: "Delete", danger: true })
@@ -2130,11 +2131,13 @@ export function Zero0Canvas() {
         if (id === "edit") {
           navigateTo(entityId) // open the entity; per-occurrence time editing lives in its §0 block
         } else if (id === "cancel") {
+          // Reversible toggle (v0.2.343): a cancelled occurrence restores, a live one cancels.
+          const next = !occ.cancelled
           runScheduleAction(
             e,
             occ.origin === "rule"
-              ? { type: "cancel", origin: "rule", recurrenceId: occ.recurrenceId!, cancelled: true, ruleId: occ.ruleId }
-              : { type: "cancel", origin: "definite", primary: occ.occIndex === -1, occIndex: occ.occIndex, cancelled: true },
+              ? { type: "cancel", origin: "rule", recurrenceId: occ.recurrenceId!, cancelled: next, ruleId: occ.ruleId }
+              : { type: "cancel", origin: "definite", primary: occ.occIndex === -1, occIndex: occ.occIndex, cancelled: next },
           )
         } else if (id === "cancelFuture") {
           runScheduleAction(
