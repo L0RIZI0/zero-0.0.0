@@ -65,12 +65,17 @@ export type OccurrenceAction =
   | { type: "edit"; origin: "rule"; recurrenceId: number; start: number; end?: number; ruleId?: string }
   // CANCEL ALL not-yet-ended DEFINITE occurrences (v0.2.240) — the block title's action.
   | { type: "cancelAll" }
-  // CANCEL / DELETE all FUTURE occurrences of a RULE series (v0.2.341) — the occurrence right-click menu's
-  // two bulk series-tail actions, from `recurrenceId` forward (inclusive). `ruleId` set ⇒ an additional
-  // `series[]` entry; absent ⇒ the primary `repeat`. CANCEL keeps the next ≤7 as struck ghosts then ends
-  // the series; DELETE hard-truncates the whole tail. Only ever dispatched for an `origin:"rule"` row.
-  | { type: "cancelAllFuture"; recurrenceId: number; ruleId?: string }
-  | { type: "deleteAllFuture"; recurrenceId: number; ruleId?: string }
+  // CANCEL / DELETE all FUTURE occurrences (v0.2.341 rule; v0.2.342 definite) — the occurrence right-click
+  // menu's two bulk "this and following" actions, origin-discriminated:
+  //  • RULE — from `recurrenceId` forward (inclusive). `ruleId` set ⇒ an additional `series[]` entry;
+  //    absent ⇒ the primary `repeat`. CANCEL keeps the next ≤7 as struck ghosts then ends the series;
+  //    DELETE hard-truncates the whole tail.
+  //  • DEFINITE — from the clicked `occIndex` (−1 = scalar primary) forward by start (inclusive). CANCEL
+  //    ghosts the whole finite tail; DELETE removes it. Only the definite layer — never the rule series.
+  | { type: "cancelAllFuture"; origin: "rule"; recurrenceId: number; ruleId?: string }
+  | { type: "cancelAllFuture"; origin: "definite"; occIndex: number }
+  | { type: "deleteAllFuture"; origin: "rule"; recurrenceId: number; ruleId?: string }
+  | { type: "deleteAllFuture"; origin: "definite"; occIndex: number }
   // SET the PRIMARY rule from the add-slot field (v0.2.235) — "12h daily", "daily", "weekdays 9h", etc.
   // `start`/`end` (when a time was also given) become the rule ANCHOR; absent ⇒ anchored at now.
   | { type: "repeat"; repeat: Recurrence; start?: number; end?: number }
@@ -254,9 +259,9 @@ export function Zero0Occurrences({
         onSelect: (id) => {
           if (id === "edit") startEdit(r)
           else if (id === "cancel" || id === "restore") dispatchRowAction(r, "cancel")
-          else if (id === "cancelFuture") onAction(entity, { type: "cancelAllFuture", recurrenceId: r.recurrenceId!, ruleId: r.ruleId })
+          else if (id === "cancelFuture") onAction(entity, { type: "cancelAllFuture", origin: "rule", recurrenceId: r.recurrenceId!, ruleId: r.ruleId })
           else if (id === "delete") dispatchRowAction(r, "delete")
-          else if (id === "deleteFuture") onAction(entity, { type: "deleteAllFuture", recurrenceId: r.recurrenceId!, ruleId: r.ruleId })
+          else if (id === "deleteFuture") onAction(entity, { type: "deleteAllFuture", origin: "rule", recurrenceId: r.recurrenceId!, ruleId: r.ruleId })
         },
       })
     },

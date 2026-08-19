@@ -59,6 +59,9 @@ import {
   deleteRuleOccurrence,
   cancelFutureRuleOccurrences,
   deleteFutureRuleOccurrences,
+  cancelFutureDefiniteOccurrences,
+  deleteFutureDefiniteOccurrences,
+  hasLaterDefiniteOccurrence,
   setRuleOccurrenceTime,
   setDefiniteOccurrenceTime,
   cancelAllDefiniteOccurrences,
@@ -928,7 +931,7 @@ export function Zero0Canvas() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- rev/contextId are the intended re-read triggers
   const children = useMemo(() => (mounted ? getChildren(contextId) : []), [mounted, rev, contextId])
 
-  // ── RESOURCE PRE-WARM (desktop/WebView2) ────────────────────────────────────────────
+  // ── RESOURCE PRE-WARM (desktop/WebView2) ───────────────────────────────────────���────
   // Create+load a web resource's native view HIDDEN so a later drill-in is an instant reveal.
   // `prewarmedRef` tracks the ids we pre-warmed (and never actually opened) so we can discard
   // them to bound memory when leaving their context. `openedRef` marks ids the user actually
@@ -1875,13 +1878,16 @@ export function Zero0Canvas() {
         // "cancel all" on the one-off list (v0.2.240) — cancels every not-yet-ended definite occurrence.
         cancelAllDefiniteOccurrences(e.id)
       } else if (action.type === "cancelAllFuture") {
-        // "cancel all future occurrences" of a rule series (v0.2.341) — the next ≤7 from the clicked
-        // instance stay as struck ghosts, everything after the 7th is truncated off the series.
-        cancelFutureRuleOccurrences(e.id, action.recurrenceId, action.ruleId)
+        // "cancel all future occurrences" (v0.2.341 rule / v0.2.342 definite). RULE: next ≤7 from the
+        // clicked instance stay as struck ghosts, the rest of the series is truncated. DEFINITE: the whole
+        // finite tail (by start, from the clicked occ) is struck as ghosts — rule occurrences untouched.
+        if (action.origin === "rule") cancelFutureRuleOccurrences(e.id, action.recurrenceId, action.ruleId)
+        else cancelFutureDefiniteOccurrences(e.id, action.occIndex)
       } else if (action.type === "deleteAllFuture") {
-        // "delete all future occurrences" of a rule series (v0.2.341) — hard-truncates the rule at the
-        // clicked instance so it + every later occurrence stop projecting on both rails.
-        deleteFutureRuleOccurrences(e.id, action.recurrenceId, action.ruleId)
+        // "delete all future occurrences" (v0.2.341 rule / v0.2.342 definite). RULE: hard-truncates the
+        // rule at the clicked instance. DEFINITE: removes the clicked occ + every later definite one.
+        if (action.origin === "rule") deleteFutureRuleOccurrences(e.id, action.recurrenceId, action.ruleId)
+        else deleteFutureDefiniteOccurrences(e.id, action.occIndex)
       }
       bump()
     },
@@ -2106,17 +2112,20 @@ export function Zero0Canvas() {
       ev.stopPropagation()
       const e = getEntity(entityId)
       if (!e) return
-      // A RULE occurrence (a repeating series) additionally offers the two bulk series-tail actions
-      // (v0.2.341): "Cancel/Delete all future occurrences" — this instance and everything after it.
-      // A definite one-off has no "future occurrences", so those items are omitted there.
+      // The two bulk "this and following" actions (v0.2.341 rule; v0.2.342 definite): "Cancel/Delete all
+      // future occurrences" — this instance and everything after it. A RULE occurrence always offers them
+      // (a series has a conceptual tail). A DEFINITE one-off only offers them when there's actually a LATER
+      // definite occurrence to sweep (`hasLaterDefiniteOccurrence`), so a lone occurrence isn't cluttered
+      // with an item that would just duplicate plain Cancel/Delete. Definite never touches the rule series.
       const isRule = occ.origin === "rule"
+      const showFuture = isRule || hasLaterDefiniteOccurrence(entityId, occ.occIndex)
       const items: MenuItem[] = [
         { type: "item", id: "edit", label: "Edit time" },
         { type: "item", id: "cancel", label: "Cancel" },
       ]
-      if (isRule) items.push({ type: "item", id: "cancelFuture", label: "Cancel all future occurrences" })
+      if (showFuture) items.push({ type: "item", id: "cancelFuture", label: "Cancel all future occurrences" })
       items.push({ type: "item", id: "delete", label: "Delete", danger: true })
-      if (isRule) items.push({ type: "item", id: "deleteFuture", label: "Delete all future occurrences", danger: true })
+      if (showFuture) items.push({ type: "item", id: "deleteFuture", label: "Delete all future occurrences", danger: true })
       showMenu(items, ev.clientX, ev.clientY, (id) => {
         if (id === "edit") {
           navigateTo(entityId) // open the entity; per-occurrence time editing lives in its §0 block
@@ -2128,7 +2137,12 @@ export function Zero0Canvas() {
               : { type: "cancel", origin: "definite", primary: occ.occIndex === -1, occIndex: occ.occIndex, cancelled: true },
           )
         } else if (id === "cancelFuture") {
-          runScheduleAction(e, { type: "cancelAllFuture", recurrenceId: occ.recurrenceId!, ruleId: occ.ruleId })
+          runScheduleAction(
+            e,
+            occ.origin === "rule"
+              ? { type: "cancelAllFuture", origin: "rule", recurrenceId: occ.recurrenceId!, ruleId: occ.ruleId }
+              : { type: "cancelAllFuture", origin: "definite", occIndex: occ.occIndex },
+          )
         } else if (id === "delete") {
           runScheduleAction(
             e,
@@ -2137,7 +2151,12 @@ export function Zero0Canvas() {
               : { type: "delete", origin: "definite", primary: occ.occIndex === -1, occIndex: occ.occIndex },
           )
         } else if (id === "deleteFuture") {
-          runScheduleAction(e, { type: "deleteAllFuture", recurrenceId: occ.recurrenceId!, ruleId: occ.ruleId })
+          runScheduleAction(
+            e,
+            occ.origin === "rule"
+              ? { type: "deleteAllFuture", origin: "rule", recurrenceId: occ.recurrenceId!, ruleId: occ.ruleId }
+              : { type: "deleteAllFuture", origin: "definite", occIndex: occ.occIndex },
+          )
         }
       })
     },

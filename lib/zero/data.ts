@@ -2735,6 +2735,105 @@ export function deleteFutureRuleOccurrences(id: string, recurrenceId: number, ru
 }
 
 /**
+ * "CANCEL / DELETE all FUTURE occurrences" of a NON-REPEATING (definite) occurrence (v0.2.342, Loris) —
+ * the definite-layer twin of the rule-tail actions above. Right-clicking a plain planned occurrence and
+ * choosing one of these acts on THIS occurrence and every LATER definite one (by start, inclusive of the
+ * clicked), leaving earlier occurrences untouched. Per Loris's explicit scope decision: the DEFINITE layer
+ * ONLY — synthetic occurrences projected from a `repeat` rule are NOT considered (the user always knows a
+ * rule is in place, so cancelling a one-off never bleeds into the series). Unlike the rule variant there is
+ * no ≤7 "keep" cap: a definite list is finite, so cancel-future simply ghosts the whole tail (each stays a
+ * restorable struck 22% entry) and delete-future removes it — no unbounded tail to truncate.
+ *
+ * `occIndex` identifies the clicked occurrence (−1 = scalar primary, ≥0 = `plannedOccurrences[occIndex]`);
+ * the boundary START is resolved from it BEFORE any mutation so index shifts don't matter.
+ */
+function definiteOccStart(sched: Schedule, occIndex: number): number | undefined {
+  if (occIndex === -1) return isPlannedStart(sched.startDate) ? sched.startDate : undefined
+  const occs = sched.plannedOccurrences
+  if (!occs || occIndex < 0 || occIndex >= occs.length) return undefined
+  return occs[occIndex].start
+}
+
+/** True when a DEFINITE occurrence other than `occIndex` starts at/after the clicked one — i.e. there is a
+ *  real tail for "…all future occurrences" to act on (gates the menu items; rule-bearing scalar excluded). */
+export function hasLaterDefiniteOccurrence(id: string, occIndex: number): boolean {
+  const stored = byId.get(id)
+  if (!stored?.schedule) return false
+  const sched = stored.schedule
+  const fromStart = definiteOccStart(sched, occIndex)
+  if (fromStart == null) return false
+  const hasRule = !!sched.repeat || !!(sched.series && sched.series.length)
+  const slots: { start: number; idx: number }[] = []
+  if (!hasRule && isPlannedStart(sched.startDate)) slots.push({ start: sched.startDate, idx: -1 })
+  ;(sched.plannedOccurrences ?? []).forEach((o, i) => slots.push({ start: o.start, idx: i }))
+  return slots.some((s) => s.idx !== occIndex && s.start >= fromStart)
+}
+
+export function cancelFutureDefiniteOccurrences(id: string, occIndex: number): boolean {
+  const stored = byId.get(id)
+  if (!stored || !canPlanOccurrences(stored)) return false
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  const fromStart = definiteOccStart(sched, occIndex)
+  if (fromStart == null) return false
+  const hasRule = !!sched.repeat || !!(sched.series && sched.series.length)
+  // Flatten the scalar primary (only when NOT rule-bearing — else it's the NEXT-mirror, not a real
+  // definite) + plannedOccurrences[], then strike every entry at/after the clicked start.
+  const all: { start: number; end?: number; cancelled?: boolean }[] = []
+  if (!hasRule && isPlannedStart(sched.startDate)) {
+    all.push({ start: sched.startDate, end: sched.endDate })
+    delete sched.startDate
+    delete sched.endDate
+  }
+  all.push(...(sched.plannedOccurrences ?? []))
+  let count = 0
+  sched.plannedOccurrences = all.map((o) => {
+    if (!o.cancelled && o.start >= fromStart) {
+      count++
+      return { ...o, cancelled: true }
+    }
+    return o
+  })
+  if (count === 0) return false
+  resyncPrimary(sched)
+  const entity = mutable(stored)
+  entity.schedule = sched
+  logOccurrence(entity, `cancelled from · ${fmtOccDay(fromStart)}`)
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
+}
+
+export function deleteFutureDefiniteOccurrences(id: string, occIndex: number): boolean {
+  const stored = byId.get(id)
+  if (!stored || !canPlanOccurrences(stored)) return false
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  const fromStart = definiteOccStart(sched, occIndex)
+  if (fromStart == null) return false
+  const hasRule = !!sched.repeat || !!(sched.series && sched.series.length)
+  // Drop the scalar primary when it's a real definite at/after the boundary, and every plannedOccurrences[]
+  // slot at/after it. resyncPrimary re-mirrors NEXT from whatever survives.
+  if (!hasRule && isPlannedStart(sched.startDate) && sched.startDate! >= fromStart) {
+    delete sched.startDate
+    delete sched.endDate
+  }
+  const kept = (sched.plannedOccurrences ?? []).filter((o) => o.start < fromStart)
+  const removed = (sched.plannedOccurrences?.length ?? 0) - kept.length
+  sched.plannedOccurrences = kept
+  resyncPrimary(sched)
+  const entity = mutable(stored)
+  entity.schedule = sched
+  logOccurrence(entity, `deleted from · ${fmtOccDay(fromStart)}`)
+  void removed
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
+}
+
+/**
  * CANCEL ALL DEFINITE occurrences (v0.2.240) — the definite-list "cancel all" title action. Marks every
  * not-yet-ended definite span cancelled (a struck, per-row-restorable tombstone); already-past ones are
  * left untouched (you can't cancel history, matching the per-row gate). Only the DEFINITE layer is
