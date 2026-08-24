@@ -17,6 +17,7 @@ import { isSleepTitle, sleepSkyBackground } from "@/lib/zero/sleep-sky"
 import { DAYLINE_ROW_H } from "@/lib/zero/layout"
 import { useNowSeconds, useAnimationFrameNow } from "@/lib/zero/use-now"
 import { formatLocale } from "@/lib/zero/format-locale"
+import { buildHorizonWarp, chooseGuideStep, HORIZON, type TimeWarp } from "@/lib/zero/dayline-warp"
 import { Zero0Glyph } from "./zero0-glyph"
 import { cn } from "@/lib/utils"
 
@@ -397,7 +398,7 @@ interface DaylineBar {
   /**
    * A PLANNED instant occurrence (`kind === "instant"`). Instead of a bare 2px point tick,
    * it renders on the TOP rail as a small FILLED instant glyph (the down-triangle) with the
-   * entity's title beside it, both painted in the entity's own color — so a placed instant
+   * entity's title beside it, both painted in the entity's own color ��� so a placed instant
    * reads as a labelled point on the plan, not an easy-to-miss sliver.
    */
   instant?: boolean
@@ -488,6 +489,7 @@ export function Zero0Dayline({
   hideBottomBorder = false,
   highlightId = null,
   onEmptyClick,
+  horizon = false,
 }: {
   onOpen: (id: string) => void
   /** Right-click a tick → open the entity menu for that occurrence's entity. Optional so
@@ -549,6 +551,16 @@ export function Zero0Dayline({
    *  (v0.2.313). Receives the current window CENTER TIME so the calendar can center its day columns
    *  on whatever the dayline was showing. Absent ⇒ empty clicks do nothing (legacy behavior). */
   onEmptyClick?: (centerTime: number) => void
+  /**
+   * HORIZON MODE (v0.2.345, EXPERIMENTAL — may be reverted). Swaps the linear time axis for the
+   * non-linear "fisheye" one from `lib/zero/dayline-warp`: instead of a pannable one-day window, the band
+   * shows the WHOLE horizon at once (a bit of the past out to the last planned thing), dilating the window
+   * around now plus each cluster of planned occurrences and compressing the dead space between them. This
+   * is the NO-SCROLL variant, so pan + pinch-zoom are disabled while it's on — deliberately, since the
+   * .310–.312 gesture machinery assumes an affine time→x map (one composited parent transform) and a
+   * warped axis can't be expressed that way. Off ⇒ the dayline behaves exactly as before.
+   */
+  horizon?: boolean
 }) {
   const isAccess = tracks === "access"
   // TODAY's combined lane: paint planned + access together on one centered band,
@@ -649,19 +661,79 @@ export function Zero0Dayline({
       if (guideOffTimerRef.current != null) clearTimeout(guideOffTimerRef.current)
     }
   }, [])
+  // One activity-log revision counter, used by the access/session memos — bumps whenever a segment is
+  // logged/edited so they re-derive. (The planned rail no longer reads it: coverage was retired in .249.)
+  const activityRevision = useActivityRevision()
+
+  // ────────────────────────────────────────────────────────────────────────────────────────────────
+  // HORIZON MODE (v0.2.345, EXPERIMENTAL) — the non-linear "fisheye" axis. See lib/zero/dayline-warp.
+  // ────────────────────────────────────────────────────────────────────────────────────────────────
+  // Chicken-and-egg: the warp's bounds come from the CONTENT, but querying content needs bounds. So we
+  // probe one wide fixed range, derive the foci from whatever we find, and then let the warp's own bounds
+  // BECOME the render window. Only PLANNED occurrences seed foci — recorded sessions cluster around now,
+  // which is already the heaviest focus, so they'd contribute nothing but density spikes.
+  //
+  // Split into TWO memos on purpose, because `now` ticks every second and neither half should run that
+  // often: the expensive part (projecting recurrences across a ~430-day probe) is keyed to a COARSE 30-min
+  // bucket, and the cheap part (integrating the density table) to a 2-min bucket. Staleness is harmless —
+  // a 2-min-old focus center displaces the now marker by ~0.2% of the axis (≈1-2px), while the marker
+  // itself still reads the live smooth clock through `pctFor`, so it stays exact.
+  const probeBucket = Math.floor(now / (30 * MIN_MS))
+  const warpNow = Math.floor(now / (2 * MIN_MS)) * (2 * MIN_MS)
+  const horizonMarks = useMemo(() => {
+    if (!horizon || !mounted) return [] as { start: number; end?: number }[]
+    const out: { start: number; end?: number }[] = []
+    for (const occ of getDaylineOccurrences(now - HORIZON.maxPastMs, now + HORIZON.maxFutureMs, now)) {
+      const s = occ.schedule
+      if (!s) continue
+      const st = (typeof s.startDate === "number" ? s.startDate : undefined) ?? s.at ?? s.dueDate
+      const en = effectiveScheduleEnd(s) ?? undefined
+      if (st == null && en == null) continue
+      out.push({ start: st ?? en!, end: en ?? st! })
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `now` is intentionally read via probeBucket
+  }, [horizon, mounted, dataRev, activityRevision, probeBucket])
+  const warp = useMemo<TimeWarp | null>(
+    () => (horizon && mounted ? buildHorizonWarp(warpNow, horizonMarks) : null),
+    [horizon, mounted, warpNow, horizonMarks],
+  )
+  /**
+   * THE SINGLE TIME→X SEAM. Every geometry site in this file routes through this one function, which is
+   * what keeps the whole feature additive: with no warp it IS the original
+   * the original `((t - winStart) / viewSpan) * 100`, so linear mode is bit-for-bit unchanged.
+   *
+   * WIDTHS must be written `pctFor(end) - pctFor(start)`, never `duration * scale`. Under an affine map
+   * those are identical, and under the warp only the former is correct — so one expression serves both
+   * modes and there is no branching at the call sites.
+   */
+  const pctFor = useCallback(
+    (t: number) => (warp ? warp.pctFor(t) : ((t - winStart) / viewSpan) * 100),
+    [warp, winStart, viewSpan],
+  )
+  // Horizon mode is only truly ACTIVE once a warp actually got built — `horizon` can be on while
+  // `buildHorizonWarp` declines (a short horizon isn't worth distorting), and in that case the band must
+  // keep behaving like the normal linear dayline, pan and zoom included. So every gesture gate below keys
+  // off the WARP, not off the prop. The ref mirror is for the native wheel listener, which is registered
+  // once in an effect and would otherwise close over a stale value.
+  const horizonActive = warp != null
+  const horizonActiveRef = useRef(false)
+  useEffect(() => {
+    horizonActiveRef.current = horizonActive
+  }, [horizonActive])
+
   // Off-screen render headroom scales with the zoom level so a pan always has bars queued either side.
-  const renderMargin = viewSpan * 1.5
-  const lo = winStart - renderMargin
-  const hi = winStart + viewSpan + renderMargin
+  // In horizon mode there is no pan and nothing off-screen: the window IS the warp's full horizon, so the
+  // margin collapses to zero and anything outside the horizon is genuinely not shown.
+  const renderMargin = warp ? 0 : viewSpan * 1.5
+  const lo = warp ? warp.start : winStart - renderMargin
+  const hi = warp ? warp.end : winStart + viewSpan + renderMargin
 
   // PLANNED bars — SCHEDULED occurrences from the real entity graph (whole tree from
   // s_root), expanded across the window by the recurrence engine. Colored by the
   // entity's own `accent` (set via `:color:`), else an inherited space accent, else
   // neutral. `dataRev` re-derives after a create / `:color:` / `:start:` edit; `now`
   // is only a dep so a point exactly at "now" stays consistent with the marker.
-  // One activity-log revision counter, used by the access/session memos — bumps whenever a segment is
-  // logged/edited so they re-derive. (The planned rail no longer reads it: coverage was retired in .249.)
-  const activityRevision = useActivityRevision()
   const planned = useMemo<DaylineBar[]>(() => {
     if (!mounted) return []
     const out: DaylineBar[] = []
@@ -713,10 +785,10 @@ export function Zero0Dayline({
       // ANCHOR = the KNOWN edge the tick pins to: the start when we have one, else the end (end-only).
       const anchor = st ?? en
       if (en < lo || anchor > hi) continue
-      const leftPct = ((anchor - winStart) / viewSpan) * 100
+      const leftPct = pctFor(anchor)
       // End-only ticks carry no width of their own — they're just the leftward fade tail ending at
       // the anchor; the render's `unknownStart` branch supplies the fade length.
-      const widthPct = st == null ? 0 : ((en - anchor) / viewSpan) * 100
+      const widthPct = st == null ? 0 : pctFor(en) - pctFor(anchor)
       // A sleep-titled DURATION moment paints a procedural night sky instead of a
       // flat accent bar (seeded per-occurrence so it's stable yet unique per night).
       const isSleepSpan = st != null && en > st && occ.kind === "moment" && isSleepTitle(occ.title)
@@ -761,7 +833,7 @@ export function Zero0Dayline({
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [winStart, lo, hi, now, mounted, dataRev])
+  }, [winStart, lo, hi, now, mounted, dataRev, pctFor])
 
   // SESSION bars — tracked work SESSIONS (`schedule.sessions`), the punch-in/out log behind
   // Play/Stop and dwell-focus. These are what make a "whenever" (no fixed clock time) entity
@@ -814,8 +886,8 @@ export function Zero0Dayline({
         // hair ahead of the now marker, so the tick sits AT the marker, not a few px to its right.
         const st = Math.max(Math.min(rawStart, rawEnd), lo)
         const en = Math.min(rawEnd, hi)
-        const leftPct = ((st - winStart) / viewSpan) * 100
-        const widthPct = Math.max(0, ((en - st) / viewSpan) * 100)
+        const leftPct = pctFor(st)
+        const widthPct = Math.max(0, pctFor(en) - pctFor(st))
         const kindLabel = "play"
         const merged = run.count > 1 ? ` · ${run.count} sessions` : ""
         out.push({
@@ -852,7 +924,7 @@ export function Zero0Dayline({
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [winStart, lo, hi, now, mounted, dataRev, activityRevision])
+  }, [winStart, lo, hi, now, mounted, dataRev, activityRevision, pctFor])
 
   // SPINE bars — the MIDDLE rail (v0.6.21): the COLLAPSED-ACCESS leaf-spine. ACCESS sessions
   // (`via` focus / legacy undefined) are punched on EVERY entity on the path, so at any instant
@@ -951,8 +1023,8 @@ export function Zero0Dayline({
       // Keep an OPEN live segment even at ~0 width (renders as the min-width tick) so a
       // just-switched leaf shows instantly; only drop CLOSED zero-width slivers.
       if (en < st || (en === st && !seg.open)) continue
-      const leftPct = ((st - winStart) / viewSpan) * 100
-      const widthPct = Math.max(0, ((en - st) / viewSpan) * 100)
+      const leftPct = pctFor(st)
+      const widthPct = Math.max(0, pctFor(en) - pctFor(st))
       const entity = getEntity(seg.id)
       const { fill, stroke } = paintFor(seg.id)
       // v0.6.22: the middle spine does NOT trail the unknown-end fade (`unknownEnd:false`) — it's
@@ -981,7 +1053,7 @@ export function Zero0Dayline({
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [winStart, lo, hi, now, mounted, combined, dataRev, activityRevision])
+  }, [winStart, lo, hi, now, mounted, combined, dataRev, activityRevision, pctFor])
 
   // ACCESS bars — tracked activity ("where I was"). Titles fold `titleAt` so a past
   // segment reads with the name the place had THEN. `activityRevision` (shared above)
@@ -1007,8 +1079,8 @@ export function Zero0Dayline({
       const next = segs[i + 1]
       const roundLeft = !prev || prev.leftAt == null || prev.leftAt !== s.enteredAt
       const roundRight = s.leftAt == null || !next || next.enteredAt !== s.leftAt
-      const leftPct = ((st - winStart) / viewSpan) * 100
-      const widthPct = ((en - st) / viewSpan) * 100
+      const leftPct = pctFor(st)
+      const widthPct = pctFor(en) - pctFor(st)
       const entity = getEntity(s.entityId)
       // Same paint model as the planned bar: fill = the place's own color, stroke = its
       // parent's color (a hairline, only when the place sits inside a Space).
@@ -1034,7 +1106,7 @@ export function Zero0Dayline({
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [winStart, lo, hi, now, mounted, activityRevision])
+  }, [winStart, lo, hi, now, mounted, activityRevision, pctFor])
 
   // One lookup for the hovered bar's tooltip, across every list that can render.
   const byKey = useMemo(() => {
@@ -1202,7 +1274,7 @@ export function Zero0Dayline({
   // NOW marker position within the shown window; off-screen (outside 0–100) when panned.
   // Uses the SMOOTH rAF clock so the marker glides continuously instead of jumping each second
   // (v0.2.261). Open-tick right edges below read the same `smoothNow`, preserving marker-sync.
-  const nowPct = ((smoothNow - winStart) / viewSpan) * 100
+  const nowPct = pctFor(smoothNow)
   const nowInView = nowPct >= 0 && nowPct <= 100
 
   // ==========================================================================
@@ -1613,12 +1685,17 @@ export function Zero0Dayline({
       if (e.button !== 0) return
       menuWasOpenRef.current = typeof document !== "undefined" && !!document.querySelector("[data-zero-menu]")
       draggedRef.current = false
-      dragRef.current = { startX: e.clientX, startView: viewStart, lastX: e.clientX }
+      // HORIZON MODE (v0.2.345) shows the whole horizon at once, so there is nothing to pan TO. Leaving
+      // `dragRef` null makes onPointerMove bail before it touches injectPan/setViewStart — which matters
+      // for more than just taste: the pan path re-anchors `winStart` from a px delta via a single affine
+      // `dx/w * viewSpan`, and that arithmetic is simply wrong under a non-linear axis. Tick hover,
+      // right-click menus and edge-resize all still work (they don't go through dragRef).
+      dragRef.current = horizonActive ? null : { startX: e.clientX, startView: viewStart, lastX: e.clientX }
       cursorColRef.current = pctToCol(e.clientX)
       lastPointerRef.current = { x: e.clientX, y: e.clientY }
       pointerInsideRef.current = true
     },
-    [viewStart, pctToCol],
+    [viewStart, pctToCol, horizonActive],
   )
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
@@ -1874,6 +1951,11 @@ export function Zero0Dayline({
     }
 
     const onWheel = (e: WheelEvent) => {
+      // HORIZON MODE (v0.2.345) — the whole horizon is already on screen, so neither scroll-pan nor
+      // pinch-zoom has anything to do. Bail BEFORE `preventDefault` so the gestures fall through to the
+      // page instead of being silently swallowed (a dead-feeling band is worse than one that doesn't
+      // claim the gesture). Both branches below rest on the axis being affine, which it isn't here.
+      if (horizonActiveRef.current) return
       // PINCH-ZOOM (v0.2.303, EASED v0.2.305) — a trackpad pinch is delivered as a wheel event with
       // `ctrlKey` set (the browser/OS synthesizes it; a real Ctrl+scroll is the same gesture intent =
       // zoom). Spread fingers ��� deltaY < 0 ⇒ SMALLER span ⇒ zoom IN; pinch together ⇒ zoom OUT. Each
@@ -1974,16 +2056,22 @@ export function Zero0Dayline({
   // `leftPct` drives TWO things: the in-band 1px line (a ripple node that slides/clips with
   // the timeline) AND the sticky-push label in the strip ABOVE the band (see paintDayLabels).
   // The ACTIVITY access lane is intentionally left plain for now.
+  // v0.2.345: in HORIZON mode the window can span many months, where one node per midnight would mean
+  // hundreds of labels fighting over the same few compressed pixels. Step up to a coarser boundary
+  // (chooseGuideStep) so the count stays bounded. Note the markers are still placed through `pctFor`, so
+  // the grid itself is UNEVENLY spaced on screen — that's the point: a widening/narrowing date grid is
+  // what makes the distortion legible instead of quietly lying about where time is.
   const dayMarkers = useMemo(() => {
     if (!mounted || isAccess) return [] as { key: string; leftPct: number; label: string }[]
     const out: { key: string; leftPct: number; label: string }[] = []
+    const step = warp ? Math.max(DAY_MS, chooseGuideStep(hi - lo, 40)) : DAY_MS
     const firstMidnight = new Date(lo)
     firstMidnight.setHours(0, 0, 0, 0)
-    for (let t = firstMidnight.getTime(); t <= hi; t += DAY_MS) {
-      out.push({ key: `day:${t}`, leftPct: ((t - winStart) / viewSpan) * 100, label: shortDay(t) })
+    for (let t = firstMidnight.getTime(); t <= hi; t += step) {
+      out.push({ key: `day:${t}`, leftPct: pctFor(t), label: shortDay(t) })
     }
     return out
-  }, [mounted, isAccess, lo, hi, winStart, shortDay])
+  }, [mounted, isAccess, lo, hi, winStart, shortDay, pctFor, warp])
 
   // HOURLY EDIT-GUIDE MARKERS (v0.2.285) — one faint 1px line per HOUR boundary across the buffered
   // window, used only as a time reference while dragging a tick edge (they fade in on edge-hover, see
@@ -1992,13 +2080,16 @@ export function Zero0Dayline({
   const hourMarkers = useMemo(() => {
     if (!mounted || isAccess) return [] as { key: string; leftPct: number }[]
     const out: { key: string; leftPct: number }[] = []
+    // v0.2.345: hourly across a multi-month horizon would be thousands of nodes, nearly all of them
+    // sub-pixel and stacked in the compressed stretches. Coarsen the step to keep the count bounded.
+    const step = warp ? chooseGuideStep(hi - lo, 90) : HOUR_MS
     const first = new Date(lo)
     first.setMinutes(0, 0, 0)
-    for (let t = first.getTime(); t <= hi; t += HOUR_MS) {
-      out.push({ key: `hr:${t}`, leftPct: ((t - winStart) / viewSpan) * 100 })
+    for (let t = first.getTime(); t <= hi; t += step) {
+      out.push({ key: `hr:${t}`, leftPct: pctFor(t) })
     }
     return out
-  }, [mounted, isAccess, lo, hi, winStart])
+  }, [mounted, isAccess, lo, hi, winStart, pctFor, warp])
 
   // Reposition the sticky day labels when they REMOUNT (toggling `minimized` swaps their
   // host container: above-band strip ⇄ in-band overlay) or when the marker SET changes.
@@ -2325,7 +2416,16 @@ export function Zero0Dayline({
                   // % of the lane, so it scales with the pinch-zoom and never elongate-then-snaps under the
                   // zoom glide's scaleX (see the FADE_MS note). `fadePct` = the fade's lane-width fraction
                   // at the current zoom; `rightTailPct` is it for the rightward (unknown-end) fade only.
-                  const fadePct = (FADE_MS / viewSpan) * 100
+                  // v0.2.345: under the HORIZON warp a fixed time span is no longer a fixed percentage —
+                  // FADE_MS is worth far more width inside a dilated focus than in a compressed stretch.
+                  // So measure it the same way every other width is measured, as a DIFFERENCE of mapped
+                  // positions from the edge the fade actually hangs off (the tick's right edge). In linear
+                  // mode this reduces exactly to the old `FADE_MS / viewSpan` constant.
+                  const fadeAnchor = p.startMs != null && p.endMs != null ? p.endMs : null
+                  const fadePct =
+                    warp && fadeAnchor != null
+                      ? Math.max(0, pctFor(fadeAnchor + FADE_MS) - pctFor(fadeAnchor))
+                      : (FADE_MS / viewSpan) * 100
                   const rightTailPct: number | null = fading ? fadePct : null
                   // SMOOTH RIGHT EDGE (v0.2.261, widened .262): ANY tick whose right edge IS the now
                   // marker gets its solid width driven off the same smooth `nowPct` the marker uses
@@ -2354,10 +2454,10 @@ export function Zero0Dayline({
                   // so only the plain left + width branches below consult these.
                   const dragging = editPreview?.key === p.key
                   const dispLeftPct = dragging
-                    ? ((editPreview!.start - winStart) / viewSpan) * 100
+                    ? pctFor(editPreview!.start)
                     : p.leftPct
                   const dispWidthPct = dragging
-                    ? ((editPreview!.end - editPreview!.start) / viewSpan) * 100
+                    ? pctFor(editPreview!.end) - pctFor(editPreview!.start)
                     : effWidthPct
                   // OPEN SPINE SEGMENT (v0.2.268): the live middle/access segment whose RIGHT edge is the
                   // growing now edge and whose LEFT edge (start) is FIXED. It must be LEFT-anchored (see
