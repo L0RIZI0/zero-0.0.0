@@ -1004,9 +1004,14 @@ export function Zero0Calendar({
                     // entity is hovered (v0.2.334) — hovering any of its blocks reveals all its faint ones.
                     const autoOpacity = r.bar.auto && !dim && hoverId !== r.bar.id ? 0.6 : undefined
                     // CANCELLED occurrence (v0.2.340, Loris) — a per-instance cancel keeps the block but
-                    // renders it as a struck-through 22% GHOST (title + glyph struck, body faded) instead
+                    // renders it as a struck-through GHOST (title + glyph struck, body faded) instead
                     // of dropping it. Overrides autoOpacity so a cancelled auto-block still reads as struck.
                     const occCancelled = !!r.bar.cancelled
+                    // Both faint states (cancelled 22%, auto-play 60%) fade the BLOCK BODY ONLY — applied to
+                    // the fill layer below, never to this container (v0.2.344, Loris): the glyph + title stay
+                    // at full strength so a ghost block is still perfectly readable. `dim` (the highlight
+                    // fade) deliberately stays on the whole button — that one IS meant to fade everything.
+                    const fillOpacity = occCancelled ? 0.22 : autoOpacity
                     const showTime = r.bh >= LABEL_TIME_H
                     const g = glyphFor(r.bar.id)
                     // The GLYPH spins only on the ACTUALLY-ongoing block, not on every block of an ongoing
@@ -1074,7 +1079,7 @@ export function Zero0Calendar({
                           // white in light mode, black in dark mode. Roots/top-level blocks keep no border.
                           r.depth > 0 && "border border-white dark:border-black",
                         )}
-                        style={{ left: r.bx, top: r.by, width: r.bw, height: r.bh, opacity: occCancelled ? 0.22 : autoOpacity, touchAction: movable ? "none" : undefined }}
+                        style={{ left: r.bx, top: r.by, width: r.bw, height: r.bh, touchAction: movable ? "none" : undefined }}
                         title={`${r.bar.title} · ${liveRange}`}
                       >
                         {/* FILL LAYER (v0.2.316) — carries the accent fill, the accent glow/hairline AND
@@ -1082,9 +1087,11 @@ export function Zero0Calendar({
                             body fades to transparent at an unknown start/end (mirror of the dayline). */}
                         <span
                           aria-hidden
-                          className="absolute inset-0 rounded-[3px]"
+                          className="absolute inset-0 rounded-[3px] transition-opacity"
                           style={{
                             background,
+                            // Cancelled/auto fade lives HERE, not on the button (v0.2.344) — body only.
+                            opacity: fillOpacity,
                             // GLOW not border (v0.2.319, Loris) — the accent reads as an inset glow bleeding
                             // inward, matching the dayline; the neutral root sentinel (no accent) keeps a
                             // faint hairline for shape. Masked so an unclear-edge fade carries the glow too.
@@ -1227,9 +1234,11 @@ export function Zero0Calendar({
                           // minHeight (not fixed) so a long title can wrap past two lines without clipping.
                           minHeight: c.lh,
                           // Faint ENTITY-ACCENT border (v0.2.319) instead of the neutral --border, tying the
-                          // chip to its block's color; kept faint via a color-mix with transparent.
-                          borderColor: `color-mix(in oklab, ${accent} 55%, transparent)`,
-                          opacity: chipCancelled ? 0.22 : undefined,
+                          // chip to its block's color; kept faint via a color-mix with transparent. A
+                          // CANCELLED chip fades only this border (v0.2.344) — the chip is pure label, so
+                          // fading the whole element would fade exactly the glyph + title we must keep
+                          // crisp; the struck glyph + line-through title already carry the cancelled read.
+                          borderColor: `color-mix(in oklab, ${accent} ${chipCancelled ? 18 : 55}%, transparent)`,
                         }}
                         title={`${c.bar.title} · ${chipRange}`}
                       >

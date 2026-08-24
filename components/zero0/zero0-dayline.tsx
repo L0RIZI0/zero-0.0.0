@@ -2389,6 +2389,11 @@ export function Zero0Dayline({
                   // CANCELLED occurrence (v0.2.340) ⇒ a 22% GHOST tick, overriding the normal opacity
                   // (even a hover only lifts a live tick — a cancelled one stays faint to read as struck).
                   const tickOpacity = p.cancelled ? 0.22 : lit || isHot ? 1 : p.track === "planned" ? 0.8 : 1
+                  // A SPAN tick is pure body, so `tickOpacity` (with its cancelled ghost) applies directly.
+                  // An INSTANT tick is pure LABEL (glyph + title, no fill), so it must NOT take the cancelled
+                  // fade (v0.2.344, Loris: only a block's body dims, never its glyph/title) — the struck
+                  // glyph + line-through title already read as cancelled.
+                  const labelOpacity = lit || isHot ? 1 : p.track === "planned" ? 0.8 : 1
                   // PLANNED INSTANT — a small FILLED instant glyph (the down-triangle) with the
                   // entity title beside it, both in the entity's color. The glyph is nudged left
                   // half its width so its center sits exactly on the instant's time; the title
@@ -2432,7 +2437,7 @@ export function Zero0Dayline({
                             top: railTop,
                             left: `${p.leftPct}%`,
                             color: fill,
-                            opacity: tickOpacity,
+                            opacity: labelOpacity,
                             zIndex: lit || isHot ? 16 : 8,
                           }}
                         >
