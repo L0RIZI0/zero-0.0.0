@@ -200,6 +200,10 @@ export function Zero0Agenda({
     }
   }, [minimized, expanded])
 
+  // HORIZON (fisheye) axis toggle — v0.2.345, EXPERIMENTAL and may be reverted, hence a local piece of
+  // state with no persistence rather than a real setting. Only meaningful on the maximized dayline: the
+  // minimized band is too short to read a warped axis, and the calendar stays linear by design.
+  const [horizon, setHorizon] = useState(false)
   const morphing = morph !== null
   // Which real views are in the tree. During a morph both are mounted; the one being animated FROM/TO is
   // hidden (the overlay stands in). Steady state shows exactly one.
@@ -247,7 +251,7 @@ export function Zero0Agenda({
         {showDayline && (
           <div
             ref={daylineHostRef}
-            className={minimized ? "cursor-pointer" : undefined}
+            className={minimized ? "relative cursor-pointer" : "relative"}
             style={morphing ? { opacity: 0, pointerEvents: "none" } : undefined}
             aria-hidden={morphing || undefined}
             onClick={
@@ -271,7 +275,28 @@ export function Zero0Agenda({
               hideBottomBorder={hideBottomBorder}
               highlightId={highlightId}
               onEmptyClick={startExpand}
+              horizon={horizon && !minimized}
             />
+            {/* Experimental axis toggle (v0.2.345). Deliberately tiny + low-contrast: it is a dev
+                affordance, not a feature the frame should advertise. Hidden while minimized. */}
+            {!minimized && (
+              <button
+                type="button"
+                onClick={(ev) => {
+                  ev.stopPropagation()
+                  setHorizon((v) => !v)
+                }}
+                title={
+                  horizon
+                    ? "Horizon (fisheye) axis — dilates now + planned clusters, compresses dead space. Click for the linear axis."
+                    : "Linear axis. Click for the experimental horizon (fisheye) axis."
+                }
+                aria-pressed={horizon}
+                className="absolute right-1 top-1 z-20 font-mono text-[9px] uppercase tracking-widest text-muted-foreground/40 transition-colors hover:text-foreground"
+              >
+                {horizon ? "fisheye" : "linear"}
+              </button>
+            )}
           </div>
         )}
       </div>

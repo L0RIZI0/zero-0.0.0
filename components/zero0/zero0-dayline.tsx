@@ -1636,17 +1636,25 @@ export function Zero0Dayline({
     e.stopPropagation()
     const dx = e.clientX - d.startX
     if (Math.abs(dx) > 2) editDraggedRef.current = true
-    // px → ms via the same scale panning uses: the live view span across the lane's pixel width.
-    const deltaMs = (dx / d.laneW) * viewSpanRef.current
+    // px → ms. LINEAR mode: one global scale (the live view span across the lane's pixel width).
+    // HORIZON mode (v0.2.345): px→ms is NON-UNIFORM — the same 10px is minutes inside a dilated focus but
+    // days in a compressed stretch — so a single `deltaMs` can't be right for every edge. Instead map the
+    // dragged edge OUT to its own on-screen position, add the pixel delta there, and map back through the
+    // warp's inverse. That's exact (not the 1/density linearization), so the edge tracks the cursor even
+    // when the drag crosses a density gradient, which is the case that would otherwise drift and feel
+    // sticky. Each branch shifts a DIFFERENT anchor, hence a per-edge helper rather than one delta.
+    const laneW = Math.max(1, d.laneW)
+    const shift = (anchor: number) =>
+      warp ? warp.timeAt(warp.pctFor(anchor) + (dx / laneW) * 100) : anchor + (dx / laneW) * viewSpanRef.current
     let start = d.origStart
     let end = d.origEnd
     if (d.kind === "move") {
-      start = roundToMinute(d.origStart + deltaMs)
+      start = roundToMinute(shift(d.origStart))
       end = start + (d.origEnd - d.origStart) // preserve duration
     } else if (d.kind === "start") {
-      start = Math.min(roundToMinute(d.origStart + deltaMs), d.origEnd - MIN_OCC_MS)
+      start = Math.min(roundToMinute(shift(d.origStart)), d.origEnd - MIN_OCC_MS)
     } else {
-      end = Math.max(roundToMinute(d.origEnd + deltaMs), d.origStart + MIN_OCC_MS)
+      end = Math.max(roundToMinute(shift(d.origEnd)), d.origStart + MIN_OCC_MS)
     }
     d.curStart = start
     d.curEnd = end
@@ -1654,7 +1662,7 @@ export function Zero0Dayline({
     // Keep the entity tooltip glued to the cursor during the drag (its start/end text updates live
     // from `editPreview` in the render — v0.2.287).
     placeTooltip(e.clientX, e.clientY)
-  }, [placeTooltip])
+  }, [placeTooltip, warp])
   const endEdgeDrag = useCallback(
     (e: React.PointerEvent) => {
       const d = editDragRef.current
@@ -1735,11 +1743,21 @@ export function Zero0Dayline({
         onEmptyClick &&
         !(e.target as HTMLElement).closest("[data-barkey]")
       ) {
+        // In HORIZON mode (v0.2.345) the "window center" is meaningless — the band spans months. Use the
+      // time UNDER THE CURSOR instead, via the warp's inverse. That turns the fisheye into a genuine
+      // navigator: click into a compressed stretch and the calendar opens on exactly those days, which
+      // is also the answer to "how do I get INTO the squeezed region" now that panning is off.
+      const lane = laneRef.current
+      if (warp && lane) {
+        const r = lane.getBoundingClientRect()
+        onEmptyClick(warp.timeAt(((e.clientX - r.left) / Math.max(1, r.width)) * 100))
+      } else {
         onEmptyClick(viewStartRef.current + viewSpanRef.current / 2)
+      }
       }
       menuWasOpenRef.current = false
     },
-    [minimized, onEmptyClick],
+    [minimized, onEmptyClick, warp],
   )
   const recenter = useCallback(() => setViewStart(dayWindow(Date.now(), viewSpanRef.current)[0]), [])
 
@@ -1817,7 +1835,7 @@ export function Zero0Dayline({
     // x sends the left-most past boundary's label negative, so a plain `x<-2 ⇒ hide` made "AUG 16"
     // vanish during the glide and snap back to x=0 only at commit. Replicate the clamp here — each
     // boundary's on-screen x is a·(leftPct/100·W)+b (the affine equivalent of paintDayLabels' formula),
-    // then sorted left→right and clamped to [0, nextBoundaryX − ownWidth] so the pinned label stays at
+    // then sorted left��right and clamped to [0, nextBoundaryX − ownWidth] so the pinned label stays at
     // the left edge throughout the glide instead of disappearing.
     const inset = minimized ? LABEL_MARKER_GAP : 0
     const labelItems: { el: HTMLElement; x: number; wdt: number }[] = []
@@ -2056,19 +2074,32 @@ export function Zero0Dayline({
   // `leftPct` drives TWO things: the in-band 1px line (a ripple node that slides/clips with
   // the timeline) AND the sticky-push label in the strip ABOVE the band (see paintDayLabels).
   // The ACTIVITY access lane is intentionally left plain for now.
-  // v0.2.345: in HORIZON mode the window can span many months, where one node per midnight would mean
-  // hundreds of labels fighting over the same few compressed pixels. Step up to a coarser boundary
-  // (chooseGuideStep) so the count stays bounded. Note the markers are still placed through `pctFor`, so
-  // the grid itself is UNEVENLY spaced on screen — that's the point: a widening/narrowing date grid is
-  // what makes the distortion legible instead of quietly lying about where time is.
+  // v0.2.345: in HORIZON mode the window can span many months. A coarser TIME step alone is not enough,
+  // because under the warp a uniform time step is a wildly NON-uniform pixel step: in the compressed
+  // stretches the labels landed on top of each other and rendered as illegible overlapping glyph soup
+  // (observed in-browser). The sticky-push clamp in `paintDayLabels` can't save them — it only pushes the
+  // LEFT-most label out of the strip, not mid-axis collisions. So thin GREEDILY BY ON-SCREEN DISTANCE:
+  // walk midnights left→right and keep one only once it clears the last kept label by a readable gap.
+  // That is the "aggregate, don't render slivers" rule — the compressed zones simply show fewer dates,
+  // which is honest, while the dilated zones still get every day. Markers stay placed through `pctFor`,
+  // so the grid is unevenly spaced on purpose: a visibly widening/narrowing date grid is what makes the
+  // distortion legible instead of quietly lying about where time is.
   const dayMarkers = useMemo(() => {
     if (!mounted || isAccess) return [] as { key: string; leftPct: number; label: string }[]
     const out: { key: string; leftPct: number; label: string }[] = []
-    const step = warp ? Math.max(DAY_MS, chooseGuideStep(hi - lo, 40)) : DAY_MS
+    // A day label is ~54px ("MON AUG 24") plus breathing room. Convert to a % of the lane so the test can
+    // be done in the same units as `leftPct`. The ref read is a best-effort hint; 700 is a sane fallback
+    // for the first paint before layout, and being slightly off only changes how many dates survive.
+    const laneW = laneRef.current?.clientWidth || 700
+    const minGapPct = (68 / laneW) * 100
+    let lastKept = -Infinity
     const firstMidnight = new Date(lo)
     firstMidnight.setHours(0, 0, 0, 0)
-    for (let t = firstMidnight.getTime(); t <= hi; t += step) {
-      out.push({ key: `day:${t}`, leftPct: pctFor(t), label: shortDay(t) })
+    for (let t = firstMidnight.getTime(); t <= hi; t += DAY_MS) {
+      const leftPct = pctFor(t)
+      if (warp && leftPct - lastKept < minGapPct) continue
+      lastKept = leftPct
+      out.push({ key: `day:${t}`, leftPct, label: shortDay(t) })
     }
     return out
   }, [mounted, isAccess, lo, hi, winStart, shortDay, pctFor, warp])
@@ -2080,13 +2111,21 @@ export function Zero0Dayline({
   const hourMarkers = useMemo(() => {
     if (!mounted || isAccess) return [] as { key: string; leftPct: number }[]
     const out: { key: string; leftPct: number }[] = []
-    // v0.2.345: hourly across a multi-month horizon would be thousands of nodes, nearly all of them
-    // sub-pixel and stacked in the compressed stretches. Coarsen the step to keep the count bounded.
-    const step = warp ? chooseGuideStep(hi - lo, 90) : HOUR_MS
+    // v0.2.345: hourly across a multi-month horizon would be thousands of nodes, nearly all sub-pixel and
+    // stacked in the compressed stretches — which renders as a solid grey block, not a grid. Two-stage
+    // fix, mirroring the day labels: coarsen the TIME step to bound the node count, then thin by
+    // ON-SCREEN distance so no two guides land within a pixel of each other.
+    const step = warp ? chooseGuideStep(hi - lo, 200) : HOUR_MS
+    const laneW = laneRef.current?.clientWidth || 700
+    const minGapPct = (7 / laneW) * 100
+    let lastKept = -Infinity
     const first = new Date(lo)
     first.setMinutes(0, 0, 0)
     for (let t = first.getTime(); t <= hi; t += step) {
-      out.push({ key: `hr:${t}`, leftPct: pctFor(t) })
+      const leftPct = pctFor(t)
+      if (warp && leftPct - lastKept < minGapPct) continue
+      lastKept = leftPct
+      out.push({ key: `hr:${t}`, leftPct })
     }
     return out
   }, [mounted, isAccess, lo, hi, winStart, pctFor, warp])
