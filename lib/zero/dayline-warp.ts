@@ -74,7 +74,12 @@ export type TimeWarp = {
    * drag sensitivity (px→ms is `1 / densityAt`), or resizing feels wrong inside a compressed zone.
    */
   densityAt: (t: number) => number
-  bumps: DensityBump[]
+  /**
+   * The density bumps this warp was built from. Present only for the density-integral builder
+   * (`buildHorizonWarp`); the lens-plan builder has no bump concept, so it is optional. Nothing outside
+   * this module reads it — it's kept for debugging the smooth formulation.
+   */
+  bumps?: DensityBump[]
 }
 
 /**
@@ -284,4 +289,288 @@ export function chooseGuideStep(spanMs: number, maxLines = 80): number {
   const steps = [HOUR_MS, 3 * HOUR_MS, 6 * HOUR_MS, 12 * HOUR_MS, DAY_MS, 2 * DAY_MS, 7 * DAY_MS, 14 * DAY_MS, 28 * DAY_MS]
   for (const s of steps) if (spanMs / s <= maxLines) return s
   return steps[steps.length - 1]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// LENS PLAN — absolute-pixel fisheye (v0.2.346)
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+/**
+ * `buildHorizonWarp` above allocates RELATIVE density shares: it says "this region gets 3× the pace of
+ * that one" and lets the actual pixel width fall out of the integral. That is smooth (C¹) but it cannot
+ * promise a tick any specific SIZE — which is exactly what the spec now demands ("at most 1/5 of the
+ * viewport, minimum 150px, every tick visible even at 1px").
+ *
+ * So this builder inverts the formulation: pixel budgets are decided FIRST, then time is mapped onto
+ * them. The axis becomes a chain of alternating GAP and LENS segments, each with a fixed time span and a
+ * fixed pixel width, and `pctFor` is piecewise-linear across that chain.
+ *
+ * The tradeoff is deliberate: we give up C¹ smoothness (density is now piecewise-constant, so the pace
+ * changes abruptly at a lens edge) in exchange for hard guarantees on tick size and exact anchoring.
+ * Guarantees are what the spec asks for; smoothness only mattered for the pinch-zoom feel, which is
+ * disabled on this axis anyway.
+ *
+ * Three properties hold by construction, not by tuning:
+ *  1. `pctFor(anchorTime) === nowAnchorFrac * 100` — because the domain is split at the anchor and the
+ *     left side is allocated exactly `nowAnchorFrac` of the width. No solver, no iteration.
+ *  2. Every lens gets `>= minTickPx`, so no planned occurrence can vanish.
+ *  3. Total width is exactly the viewport, so the whole horizon always fits with no scrolling.
+ */
+export const LENS = {
+  /** How far back the horizon reaches from the anchor. */
+  pastMs: 12 * HOUR_MS,
+  /** Hard future cap — "be reasonable, at most the next 6 months". Panning moves the anchor, not this. */
+  futureCapMs: 182 * DAY_MS,
+  /** Never show less future than this, even with no marks at all. */
+  minFutureMs: 36 * HOUR_MS,
+  /** Fraction of the width at which the anchor (normally NOW) sits. */
+  nowAnchorFrac: 1 / 3,
+  /** A lens targets `max(minLensPx, viewportW * maxLensFrac)`. The floor wins on narrow viewports. */
+  minLensPx: 150,
+  maxLensFrac: 1 / 5,
+  /** Absolute floor per lens once budgets are scaled down — guarantees visibility. */
+  minTickPx: 1,
+  /** Two lenses whose rendered gap would be thinner than this merge into one. */
+  mergeGapPx: 24,
+  /** Dead space still gets a sliver so adjacent lenses read as separate. */
+  minGapPx: 6,
+  /** Padding past the last mark so a trailing tick isn't flush against the edge. */
+  tailPadMs: 12 * HOUR_MS,
+  /**
+   * Nominal time span given to a ZERO-DURATION mark (an Instant, or an `at`/`due` point). Without it the
+   * lens is degenerate: it still consumes a full pixel budget, but `pctFor(start) === pctFor(end)` so the
+   * tick measures 0px wide and the budget is spent on nothing. Widening it into a real window also matches
+   * intent — for a moment in time you want to see the hours AROUND it, which is what a lens is for.
+   */
+  pointSpanMs: 2 * HOUR_MS,
+} as const
+
+type Seg = { t0: number; t1: number; x0: number; x1: number; lens: boolean }
+export type LensWarp = TimeWarp & {
+  /** Merged, clipped focus intervals actually rendered as lenses (epoch ms). For label anchoring. */
+  lenses: { start: number; end: number }[]
+  /** The time pinned at `nowAnchorFrac`. Equals `now` until the user pans. */
+  anchorTime: number
+}
+
+/**
+ * Allocate one side of the anchor. `sideW` px must cover exactly `[t0, t1]`, containing `lenses`
+ * (already clipped to the side and sorted). Emits the alternating gap/lens chain.
+ *
+ * Budgeting is a straight proportional-scaling problem: lenses ask for `want` each; if the total ask
+ * exceeds what's left after reserving a minimum gap sliver, every lens is scaled by the same factor
+ * (floored at `minTickPx`). Whatever remains goes to the gaps in proportion to their DURATION, so a
+ * three-month dead span still reads as longer than a two-day one.
+ */
+function allocSide(
+  t0: number,
+  t1: number,
+  sideW: number,
+  lenses: { start: number; end: number }[],
+  want: number,
+  out: Seg[],
+): void {
+  if (sideW <= 0) return
+  if (!lenses.length) {
+    out.push({ t0, t1, x0: 0, x1: sideW, lens: false })
+    return
+  }
+  const nGaps = lenses.length + 1
+  const reserved = Math.min(sideW * 0.5, nGaps * LENS.minGapPx)
+  const askTotal = lenses.length * want
+  const lensBudget = Math.max(0, sideW - reserved)
+  const scale = askTotal > lensBudget ? lensBudget / askTotal : 1
+  const lensPx = lenses.map(() => Math.max(LENS.minTickPx, want * scale))
+
+  // Gap durations, including the two edge gaps. Negative slivers clamp to 0.
+  const gapMs: number[] = []
+  let cursor = t0
+  for (const l of lenses) {
+    gapMs.push(Math.max(0, l.start - cursor))
+    cursor = l.end
+  }
+  gapMs.push(Math.max(0, t1 - cursor))
+  const gapMsTotal = gapMs.reduce((a, b) => a + b, 0)
+  const gapPxTotal = Math.max(0, sideW - lensPx.reduce((a, b) => a + b, 0))
+  // Duration-proportional when there IS dead time; otherwise split evenly so we never divide by zero.
+  const gapPx = gapMs.map((ms) => (gapMsTotal > 0 ? (ms / gapMsTotal) * gapPxTotal : gapPxTotal / nGaps))
+
+  let x = 0
+  cursor = t0
+  for (let i = 0; i < lenses.length; i++) {
+    if (gapPx[i] > 0 || gapMs[i] > 0) {
+      out.push({ t0: cursor, t1: cursor + gapMs[i], x0: x, x1: x + gapPx[i], lens: false })
+      x += gapPx[i]
+      cursor += gapMs[i]
+    }
+    out.push({ t0: lenses[i].start, t1: lenses[i].end, x0: x, x1: x + lensPx[i], lens: true })
+    x += lensPx[i]
+    cursor = lenses[i].end
+  }
+  // Trailing edge gap. Ends exactly at `sideW` so the chain closes with no rounding drift.
+  out.push({ t0: cursor, t1, x0: x, x1: sideW, lens: false })
+}
+
+/**
+ * Build the absolute-pixel fisheye axis.
+ *
+ * @param now        Current time — bounds the horizon and is the default anchor.
+ * @param marks      Focus intervals (planned occurrences, and sessions when that rail is shown).
+ * @param viewportW  Lane width in px. Budgets are meaningless without it, so this is required.
+ * @param anchorTime Time to pin at `nowAnchorFrac`; defaults to `now`. Panning passes a shifted value.
+ */
+export function buildLensWarp(
+  now: number,
+  marks: HorizonMark[],
+  viewportW: number,
+  anchorTime: number = now,
+): LensWarp | null {
+  if (!(viewportW > 0)) return null
+
+  // ── Domain. Future is content-driven but hard-capped at 6 months; past is fixed. The anchor can be
+  // panned outside [now-past, now+cap], so the domain is widened to always contain it.
+  const lastMark = marks.reduce((mx, m) => Math.max(mx, m.end ?? m.start), Number.NEGATIVE_INFINITY)
+  const futureWanted = Number.isFinite(lastMark)
+    ? Math.min(LENS.futureCapMs, Math.max(LENS.minFutureMs, lastMark + LENS.tailPadMs - now))
+    : LENS.minFutureMs
+  const lo = Math.min(now - LENS.pastMs, anchorTime - LENS.pastMs)
+  const hi = Math.max(now + futureWanted, anchorTime + LENS.minFutureMs)
+  if (hi <= lo) return null
+  const anchor = Math.min(hi, Math.max(lo, anchorTime))
+
+  // ── Focus intervals: clip to domain, give points a nominal span, sort, drop empties.
+  let ivals = marks
+    // Drop marks that don't overlap the domain BEFORE clamping. Filtering after would let an occurrence
+    // months past the 6-month cap survive as a phantom lens pinned to the right edge (it clamps to
+    // start===end===hi, which the point-widening below then inflates into a real window).
+    .filter((m) => m.start < hi && (m.end ?? m.start) > lo)
+    .map((m) => {
+      const s = Math.max(lo, Math.min(hi, m.start))
+      const e = Math.max(lo, Math.min(hi, m.end ?? m.start))
+      // Zero-duration marks become a centered window (see LENS.pointSpanMs), then re-clip to the domain.
+      if (e - s < LENS.pointSpanMs) {
+        const mid = (s + e) / 2
+        const half = LENS.pointSpanMs / 2
+        return {
+          start: Math.max(lo, Math.min(hi - LENS.pointSpanMs, mid - half)),
+          end: Math.min(hi, Math.max(lo + LENS.pointSpanMs, mid + half)),
+        }
+      }
+      return { start: s, end: Math.max(s, e) }
+    })
+    .filter((i) => i.start < hi && i.end > lo)
+    .sort((a, b) => a.start - b.start)
+
+  const want = Math.max(LENS.minLensPx, viewportW * LENS.maxLensFrac)
+
+  // ── MERGE PASS. Whether two lenses are "too close" depends on the gap's rendered width, which depends
+  // on the allocation, which depends on the lens set — circular. Resolve by iterating: estimate dead-space
+  // pace from the current set, merge the single worst offender, repeat. Each pass strictly shrinks the set,
+  // so this terminates; the loop bound is just belt-and-braces.
+  for (let pass = 0; pass < ivals.length + 1 && ivals.length > 1; pass++) {
+    const lensMs = ivals.reduce((a, i) => a + (i.end - i.start), 0)
+    const deadMs = Math.max(1, hi - lo - lensMs)
+    const deadPx = Math.max(0, viewportW - Math.min(viewportW, ivals.length * want))
+    const pxPerMs = deadPx / deadMs
+    let worst = -1
+    let worstPx = Infinity
+    for (let i = 1; i < ivals.length; i++) {
+      const gPx = Math.max(0, ivals[i].start - ivals[i - 1].end) * pxPerMs
+      if (gPx < worstPx) {
+        worstPx = gPx
+        worst = i
+      }
+    }
+    if (worst < 0 || worstPx >= LENS.mergeGapPx) break
+    ivals.splice(worst - 1, 2, {
+      start: ivals[worst - 1].start,
+      end: Math.max(ivals[worst - 1].end, ivals[worst].end),
+    })
+  }
+  // Overlapping intervals would break monotonicity of the segment chain, so coalesce any that touch.
+  ivals = ivals.reduce<{ start: number; end: number }[]>((acc, i) => {
+    const prev = acc[acc.length - 1]
+    if (prev && i.start <= prev.end) prev.end = Math.max(prev.end, i.end)
+    else acc.push({ ...i })
+    return acc
+  }, [])
+
+  // ── Split at the anchor so the 1/3 rule is exact. An interval straddling the anchor is cut in two, each
+  // half living in its own side's budget.
+  const leftW = viewportW * LENS.nowAnchorFrac
+  const left: { start: number; end: number }[] = []
+  const right: { start: number; end: number }[] = []
+  for (const i of ivals) {
+    if (i.end <= anchor) left.push(i)
+    else if (i.start >= anchor) right.push(i)
+    else {
+      left.push({ start: i.start, end: anchor })
+      right.push({ start: anchor, end: i.end })
+    }
+  }
+
+  const segs: Seg[] = []
+  const leftSegs: Seg[] = []
+  allocSide(lo, anchor, leftW, left, want, leftSegs)
+  for (const s of leftSegs) segs.push(s)
+  const rightSegs: Seg[] = []
+  allocSide(anchor, hi, viewportW - leftW, right, want, rightSegs)
+  for (const s of rightSegs) segs.push({ ...s, x0: s.x0 + leftW, x1: s.x1 + leftW })
+
+  // Normalize to percentages and enforce strict monotonicity for the binary searches.
+  const chain = segs.filter((s) => s.t1 > s.t0 || s.x1 > s.x0)
+  if (!chain.length) return null
+  for (const s of chain) {
+    s.x0 = (s.x0 / viewportW) * 100
+    s.x1 = (s.x1 / viewportW) * 100
+  }
+  const totalPxPerMs = 100 / Math.max(1, hi - lo)
+
+  const pctFor = (t: number): number => {
+    if (t <= lo) return 0
+    if (t >= hi) return 100
+    let a = 0
+    let b = chain.length - 1
+    while (a < b) {
+      const m = (a + b) >> 1
+      if (chain[m].t1 <= t) a = m + 1
+      else b = m
+    }
+    const s = chain[a]
+    const dt = s.t1 - s.t0
+    if (dt <= 0) return s.x0
+    return s.x0 + ((t - s.t0) / dt) * (s.x1 - s.x0)
+  }
+
+  const timeAt = (pct: number): number => {
+    if (pct <= 0) return lo
+    if (pct >= 100) return hi
+    let a = 0
+    let b = chain.length - 1
+    while (a < b) {
+      const m = (a + b) >> 1
+      if (chain[m].x1 <= pct) a = m + 1
+      else b = m
+    }
+    const s = chain[a]
+    const dx = s.x1 - s.x0
+    if (dx <= 0) return s.t0
+    return s.t0 + ((pct - s.x0) / dx) * (s.t1 - s.t0)
+  }
+
+  const densityAt = (t: number): number => {
+    const tc = Math.min(hi, Math.max(lo, t))
+    let a = 0
+    let b = chain.length - 1
+    while (a < b) {
+      const m = (a + b) >> 1
+      if (chain[m].t1 <= tc) a = m + 1
+      else b = m
+    }
+    const s = chain[a]
+    const dt = s.t1 - s.t0
+    if (dt <= 0) return 1
+    return ((s.x1 - s.x0) / dt) / totalPxPerMs
+  }
+
+  return { start: lo, end: hi, pctFor, timeAt, densityAt, lenses: ivals, anchorTime: anchor }
 }

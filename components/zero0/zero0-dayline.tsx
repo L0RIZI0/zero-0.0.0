@@ -17,7 +17,7 @@ import { isSleepTitle, sleepSkyBackground } from "@/lib/zero/sleep-sky"
 import { DAYLINE_ROW_H } from "@/lib/zero/layout"
 import { useNowSeconds, useAnimationFrameNow } from "@/lib/zero/use-now"
 import { formatLocale } from "@/lib/zero/format-locale"
-import { buildHorizonWarp, chooseGuideStep, HORIZON, type TimeWarp } from "@/lib/zero/dayline-warp"
+import { buildLensWarp, chooseGuideStep, HORIZON, LENS, type TimeWarp } from "@/lib/zero/dayline-warp"
 import { Zero0Glyph } from "./zero0-glyph"
 import { cn } from "@/lib/utils"
 
@@ -689,10 +689,40 @@ export function Zero0Dayline({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `now` is intentionally read via probeBucket
   }, [probeBucket])
   const warpNow = Math.floor(now / (2 * MIN_MS)) * (2 * MIN_MS)
+
+  /**
+   * Lane width in px, tracked reactively. The lens plan allocates ABSOLUTE pixel budgets ("150px floor,
+   * at most a fifth of the viewport"), so unlike the old density-share warp it cannot be built without
+   * knowing the width — and it must rebuild on resize or the budgets silently describe a stale viewport.
+   */
+  const [laneWidthPx, setLaneWidthPx] = useState(0)
+  useEffect(() => {
+    const el = laneRef.current
+    if (!el || typeof ResizeObserver === "undefined") return
+    setLaneWidthPx(el.clientWidth)
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width
+      if (w != null) setLaneWidthPx(w)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [mounted])
+
+  /**
+   * PAN ANCHOR (v0.2.346). `null` = follow NOW, which is the rest state: NOW sits at 1/3 of the lane.
+   * Dragging sets an explicit anchor time, which is how panning works on a non-linear axis — you cannot
+   * re-anchor `winStart` by an affine `dx/w * viewSpan` when a pixel buys a different amount of time at
+   * every position. Instead the drag asks the warp's own inverse which time is now under the anchor.
+   */
+  const [anchorOverride, setAnchorOverride] = useState<number | null>(null)
+  const anchorTime = anchorOverride ?? warpNow
+
   const horizonMarks = useMemo(() => {
     if (!horizon || !mounted) return [] as { start: number; end?: number }[]
     const out: { start: number; end?: number }[] = []
-    for (const occ of getDaylineOccurrences(now - HORIZON.maxPastMs, now + HORIZON.maxFutureMs, now)) {
+    // Gather across the full pannable range, not just the visible horizon: the anchor can slide, and marks
+    // must already be known when it does. `buildLensWarp` drops whatever falls outside the live domain.
+    for (const occ of getDaylineOccurrences(now - HORIZON.maxPastMs, now + LENS.futureCapMs + DAY_MS, now)) {
       const s = occ.schedule
       if (!s) continue
       const st = (typeof s.startDate === "number" ? s.startDate : undefined) ?? s.at ?? s.dueDate
@@ -704,8 +734,8 @@ export function Zero0Dayline({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `now` is intentionally read via probeBucket
   }, [horizon, mounted, dataRev, activityRevision, probeBucket])
   const warp = useMemo<TimeWarp | null>(
-    () => (horizon && mounted ? buildHorizonWarp(warpNow, horizonMarks) : null),
-    [horizon, mounted, warpNow, horizonMarks],
+    () => (horizon && mounted && laneWidthPx > 0 ? buildLensWarp(warpNow, horizonMarks, laneWidthPx, anchorTime) : null),
+    [horizon, mounted, warpNow, horizonMarks, laneWidthPx, anchorTime],
   )
   /**
    * THE SINGLE TIME→X SEAM. Every geometry site in this file routes through this one function, which is
@@ -1711,12 +1741,11 @@ export function Zero0Dayline({
       if (e.button !== 0) return
       menuWasOpenRef.current = typeof document !== "undefined" && !!document.querySelector("[data-zero-menu]")
       draggedRef.current = false
-      // HORIZON MODE (v0.2.345) shows the whole horizon at once, so there is nothing to pan TO. Leaving
-      // `dragRef` null makes onPointerMove bail before it touches injectPan/setViewStart — which matters
-      // for more than just taste: the pan path re-anchors `winStart` from a px delta via a single affine
-      // `dx/w * viewSpan`, and that arithmetic is simply wrong under a non-linear axis. Tick hover,
-      // right-click menus and edge-resize all still work (they don't go through dragRef).
-      dragRef.current = horizonActive ? null : { startX: e.clientX, startView: viewStart, lastX: e.clientX }
+      // PANNING IS ON IN BOTH MODES (v0.2.346). It used to be gated off in horizon mode because the pan
+      // path re-anchors `winStart` via an affine `dx/w * viewSpan`, which is simply wrong when a pixel
+      // buys a different amount of time at every position. The fix isn't to disable the gesture but to
+      // route it through the warp's own inverse — see onPointerMove.
+      dragRef.current = { startX: e.clientX, startView: viewStart, lastX: e.clientX }
       cursorColRef.current = pctToCol(e.clientX)
       lastPointerRef.current = { x: e.clientX, y: e.clientY }
       pointerInsideRef.current = true
@@ -1739,11 +1768,22 @@ export function Zero0Dayline({
       }
       const inc = e.clientX - d.lastX
       d.lastX = e.clientX
-      injectPan(inc)
-      setViewStart(d.startView - (dx / w) * viewSpanRef.current)
+      if (horizonActive && warp) {
+        // NON-LINEAR PAN. The anchor sits at a fixed FRACTION of the lane, so panning means changing WHICH
+        // time lives there. Asking the warp's inverse for the time currently `inc` px to the left of the
+        // anchor makes the content track the pointer 1:1 at the focus, and stay geometrically correct in
+        // the compressed stretches where an affine delta would badly overshoot.
+        const anchorPct = LENS.nowAnchorFrac * 100
+        const next = warp.timeAt(Math.max(0, Math.min(100, anchorPct - (inc / w) * 100)))
+        // Clamp so the band can't be dragged off into empty time on either side.
+        setAnchorOverride(Math.max(warpNow - 30 * DAY_MS, Math.min(warpNow + LENS.futureCapMs, next)))
+      } else {
+        injectPan(inc)
+        setViewStart(d.startView - (dx / w) * viewSpanRef.current)
+      }
       resolveHoverAtCursor()
     },
-    [pctToCol, injectPan, resolveHoverAtCursor],
+    [pctToCol, injectPan, resolveHoverAtCursor, horizonActive, warp, warpNow],
   )
   const onPointerUp = useCallback(
     (e: React.PointerEvent) => {
@@ -1777,7 +1817,12 @@ export function Zero0Dayline({
     },
     [minimized, onEmptyClick, warp],
   )
-  const recenter = useCallback(() => setViewStart(dayWindow(Date.now(), viewSpanRef.current)[0]), [])
+  // Recentering must also release the pan anchor, or horizon mode would snap its linear window back while
+  // the fisheye stayed parked wherever the last drag left it.
+  const recenter = useCallback(() => {
+    setAnchorOverride(null)
+    setViewStart(dayWindow(Date.now(), viewSpanRef.current)[0])
+  }, [])
 
   // One eased frame of the zoom glide (v0.2.305). Moves the LIVE span a fraction of the way toward
   // `zoomTargetSpanRef` in LOG space (so the ease feels uniform to the eye — perceived zoom is
