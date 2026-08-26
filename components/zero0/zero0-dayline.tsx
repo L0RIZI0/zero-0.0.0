@@ -679,6 +679,15 @@ export function Zero0Dayline({
   // a 2-min-old focus center displaces the now marker by ~0.2% of the axis (≈1-2px), while the marker
   // itself still reads the live smooth clock through `pctFor`, so it stays exact.
   const probeBucket = Math.floor(now / (30 * MIN_MS))
+  // Local midnight of today, recomputed at most twice an hour rather than on every 1s clock tick — it is
+  // an ANCHOR for the day-label thinning below, and letting `now` into that memo's deps would rebuild the
+  // whole day grid every second.
+  const todayMidnight = useMemo(() => {
+    const d = new Date(now)
+    d.setHours(0, 0, 0, 0)
+    return d.getTime()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `now` is intentionally read via probeBucket
+  }, [probeBucket])
   const warpNow = Math.floor(now / (2 * MIN_MS)) * (2 * MIN_MS)
   const horizonMarks = useMemo(() => {
     if (!horizon || !mounted) return [] as { start: number; end?: number }[]
@@ -718,9 +727,11 @@ export function Zero0Dayline({
   // once in an effect and would otherwise close over a stale value.
   const horizonActive = warp != null
   const horizonActiveRef = useRef(false)
-  useEffect(() => {
-    horizonActiveRef.current = horizonActive
-  }, [horizonActive])
+  // Synced DURING RENDER, not in an effect. `paintDayLabels` runs from a LAYOUT effect, which fires before
+  // passive effects in the same commit — so an effect-based mirror was still `false` on the first paint
+  // after enabling the axis, and the last label's right-edge clamp silently didn't apply (it rendered
+  // off-lane and got clipped). Assigning here is safe: the value is derived from this render's `warp`.
+  horizonActiveRef.current = horizonActive
 
   // Off-screen render headroom scales with the zoom level so a pan always has bars queued either side.
   // In horizon mode there is no pan and nothing off-screen: the window IS the warp's full horizon, so the
@@ -1455,7 +1466,14 @@ export function Zero0Dayline({
       // label keeps its `inset` gap to the RIGHT of the marker, and the pushed label keeps
       // an equal `inset` gap to the LEFT of it (otherwise they'd touch across the marker).
       const gap = Math.max(2 * inset, LABEL_COLLIDE_GAP)
-      const upper = i < items.length - 1 ? items[i + 1].x - items[i].wdt - gap : Infinity
+      // The LAST label has no successor to bound it. In linear mode that's harmless (it simply scrolls
+      // off and gets faded by the `nat >= w` test below). In HORIZON mode the final day boundary is
+      // pinned to ~100% by construction, so a left-aligned label there ALWAYS hangs off the right edge
+      // and gets clipped — which is how "THU DEC 03" went missing even though it was in the DOM. Clamp it
+      // to sit flush inside the lane instead; `dayMarkers` reserves the matching room so it can't land on
+      // top of its neighbour. Left untouched in linear mode to keep that path byte-identical.
+      const lastUpper = horizonActiveRef.current ? w - items[i].wdt : Number.POSITIVE_INFINITY
+      const upper = i < items.length - 1 ? items[i + 1].x - items[i].wdt - gap : lastUpper
       const x = Math.min(Math.max(nat, 0), upper)
       items[i].el.style.transform = `translateX(${x + inset}px)`
       // Fade out once shoved off the left edge or parked beyond the right edge.
@@ -2074,35 +2092,106 @@ export function Zero0Dayline({
   // `leftPct` drives TWO things: the in-band 1px line (a ripple node that slides/clips with
   // the timeline) AND the sticky-push label in the strip ABOVE the band (see paintDayLabels).
   // The ACTIVITY access lane is intentionally left plain for now.
-  // v0.2.345: in HORIZON mode the window can span many months. A coarser TIME step alone is not enough,
-  // because under the warp a uniform time step is a wildly NON-uniform pixel step: in the compressed
-  // stretches the labels landed on top of each other and rendered as illegible overlapping glyph soup
-  // (observed in-browser). The sticky-push clamp in `paintDayLabels` can't save them — it only pushes the
-  // LEFT-most label out of the strip, not mid-axis collisions. So thin GREEDILY BY ON-SCREEN DISTANCE:
-  // walk midnights left→right and keep one only once it clears the last kept label by a readable gap.
-  // That is the "aggregate, don't render slivers" rule — the compressed zones simply show fewer dates,
-  // which is honest, while the dilated zones still get every day. Markers stay placed through `pctFor`,
-  // so the grid is unevenly spaced on purpose: a visibly widening/narrowing date grid is what makes the
-  // distortion legible instead of quietly lying about where time is.
+  /**
+   * DAY BOUNDARIES. One entry per midnight, driving BOTH the vertical grid line and (when `labeled`)
+   * the date in the sticky strip. LINE and LABEL are decided SEPARATELY — that separation is the whole
+   * point of this memo in HORIZON mode:
+   *
+   *  • EVERY midnight still gets a LINE, so the day grid stays continuous and countable. Under the warp
+   *    the compressed stretches pack days a couple of px apart, which as a run of solid 25%-opacity lines
+   *    reads as one grey slab; so a line fades as its on-screen gap shrinks, turning dense regions into a
+   *    texture that says "many days, tightly packed" instead of a wall.
+   *  • LABELS are thinned to what fits — but ANCHORED first (v0.2.345 fix). The earlier version thinned
+   *    greedily left→right, which made the surviving set depend on nothing but arrival order: a Sep 1–4
+   *    occurrence rendered "SEP 02 · SEP 03 · SEP 04" — dropping SEP 01, the one date the user was looking
+   *    for — while spending labels on meaningless dead-space dates. So the dates that MEAN something
+   *    (today, and the start/end of every planned occurrence) are placed FIRST and never displaced;
+   *    remaining gaps are only then backfilled with plain days.
+   *
+   * Markers stay placed through `pctFor`, so the grid is unevenly spaced on purpose: a visibly
+   * widening/narrowing date grid is what makes the distortion legible instead of quietly lying about
+   * where time is.
+   */
   const dayMarkers = useMemo(() => {
-    if (!mounted || isAccess) return [] as { key: string; leftPct: number; label: string }[]
-    const out: { key: string; leftPct: number; label: string }[] = []
-    // A day label is ~54px ("MON AUG 24") plus breathing room. Convert to a % of the lane so the test can
-    // be done in the same units as `leftPct`. The ref read is a best-effort hint; 700 is a sane fallback
-    // for the first paint before layout, and being slightly off only changes how many dates survive.
-    const laneW = laneRef.current?.clientWidth || 700
-    const minGapPct = (68 / laneW) * 100
-    let lastKept = -Infinity
+    type DayMarker = { key: string; leftPct: number; label: string; labeled: boolean; lineOpacity: number }
+    if (!mounted || isAccess) return [] as DayMarker[]
     const firstMidnight = new Date(lo)
     firstMidnight.setHours(0, 0, 0, 0)
-    for (let t = firstMidnight.getTime(); t <= hi; t += DAY_MS) {
-      const leftPct = pctFor(t)
-      if (warp && leftPct - lastKept < minGapPct) continue
-      lastKept = leftPct
-      out.push({ key: `day:${t}`, leftPct, label: shortDay(t) })
+    const days: { t: number; leftPct: number }[] = []
+    for (let t = firstMidnight.getTime(); t <= hi; t += DAY_MS) days.push({ t, leftPct: pctFor(t) })
+
+    // LINEAR mode: unchanged — every midnight is a line AND a label, at full strength.
+    if (!warp) {
+      return days.map((d) => ({
+        key: `day:${d.t}`,
+        leftPct: d.leftPct,
+        label: shortDay(d.t),
+        labeled: true,
+        lineOpacity: 1,
+      }))
     }
-    return out
-  }, [mounted, isAccess, lo, hi, winStart, shortDay, pctFor, warp])
+
+    // A day label is ~54px ("MON AUG 24"); 72 leaves it visible breathing room. Expressed as a % of the
+    // lane so the collision test happens in the same units as `leftPct`. The ref read is a best-effort
+    // hint (700 is a sane pre-layout fallback) and being slightly off only changes how many dates survive.
+    const laneW = laneRef.current?.clientWidth || 700
+    const minGapPct = (72 / laneW) * 100
+    const midnightOf = (t: number) => {
+      const d = new Date(t)
+      d.setHours(0, 0, 0, 0)
+      return d.getTime()
+    }
+    // Kept label positions, kept SORTED so a candidate can be tested against its nearest neighbour on
+    // BOTH sides — a one-sided "clears the last kept" test is what let backfill crowd an anchor.
+    const kept: number[] = []
+    // Collide on where the label will actually RENDER, not on its anchor. Labels are left-aligned at
+    // their boundary, so one near the right edge gets pulled back inside by `paintDayLabels` — testing
+    // its raw anchor would then leave it overlapping the neighbour it appeared to clear.
+    const renderLeft = (leftPct: number) => Math.min(leftPct, 100 - minGapPct)
+    const tryKeep = (rawLeftPct: number) => {
+      const leftPct = renderLeft(rawLeftPct)
+      let a = 0
+      let b = kept.length
+      while (a < b) {
+        const m = (a + b) >> 1
+        if (kept[m] < leftPct) a = m + 1
+        else b = m
+      }
+      const prev = a > 0 ? kept[a - 1] : Number.NEGATIVE_INFINITY
+      const next = a < kept.length ? kept[a] : Number.POSITIVE_INFINITY
+      if (leftPct - prev < minGapPct || next - leftPct < minGapPct) return false
+      kept.splice(a, 0, leftPct)
+      return true
+    }
+
+    // ANCHORS, in priority order: today first, then each occurrence's START, then each END. Starts
+    // outrank ends so a short occurrence in a compressed stretch labels the day it BEGINS.
+    const anchorTimes: number[] = [todayMidnight]
+    for (const m of horizonMarks) anchorTimes.push(midnightOf(m.start))
+    for (const m of horizonMarks) if (m.end != null) anchorTimes.push(midnightOf(m.end))
+    const anchored = new Set<number>()
+    for (const at of anchorTimes) {
+      if (anchored.has(at) || at < days[0]?.t || at > hi) continue
+      if (tryKeep(pctFor(at))) anchored.add(at)
+    }
+
+    // BACKFILL plain days into whatever room is left, then derive each line's fade from its pixel gap.
+    let prevLeft = Number.NEGATIVE_INFINITY
+    return days.map((d) => {
+      const labeled = anchored.has(d.t) || tryKeep(d.leftPct)
+      const gapPx = ((d.leftPct - prevLeft) / 100) * laneW
+      prevLeft = d.leftPct
+      return {
+        key: `day:${d.t}`,
+        leftPct: d.leftPct,
+        label: shortDay(d.t),
+        labeled,
+        // Below ~4px apart the lines stop reading as separate days, so fade them into a texture rather
+        // than letting them merge into a solid block. Floored so the grid never fully disappears.
+        lineOpacity: Math.max(0.2, Math.min(1, gapPx / 4)),
+      }
+    })
+  }, [mounted, isAccess, lo, hi, winStart, shortDay, pctFor, warp, horizonMarks, todayMidnight])
 
   // HOURLY EDIT-GUIDE MARKERS (v0.2.285) — one faint 1px line per HOUR boundary across the buffered
   // window, used only as a time reference while dragging a tick edge (they fade in on edge-hover, see
@@ -2146,7 +2235,11 @@ export function Zero0Dayline({
   const headerContent = isAccess ? (
     <span>{trailing}</span>
   ) : (
-    dayMarkers.map((dm) => (
+    // Only the markers that WON a label slot render text (v0.2.345) — every midnight still draws a grid
+    // line further down, but in horizon mode most of them are far too close together to caption.
+    dayMarkers
+      .filter((dm) => dm.labeled)
+      .map((dm) => (
       <span
         key={dm.key}
         ref={registerDayLabel(dm.key)}
@@ -2201,7 +2294,10 @@ export function Zero0Dayline({
             {headerContent}
           </div>
         ) : (
-          <div className="relative mb-2 h-3 overflow-hidden text-[10px] uppercase tracking-wider text-muted-foreground/60">
+          {/* h-3 (12px) exactly equalled the 10px text's line box, so glyph tops/descenders were shaved by
+              `overflow-hidden` (which is here to stop labels escaping the lane horizontally). h-4 gives a
+              little vertical slack; mb shrinks to keep the band's total height unchanged. */}
+          <div className="relative mb-1 h-4 overflow-hidden text-[10px] uppercase tracking-wider text-muted-foreground/60">
             {headerContent}
           </div>
         ))}
@@ -2304,6 +2400,10 @@ export function Zero0Dayline({
                     style={{
                       left: `${dm.leftPct}%`,
                       zIndex: 2,
+                      // v0.2.345: in horizon mode, days squeezed a couple of px apart would otherwise
+                      // merge into a solid slab; fading them by on-screen gap keeps the grid continuous
+                      // AND readable. Always exactly 1 in linear mode.
+                      opacity: dm.lineOpacity,
                       // Counter-scale so the pan's scaleX(a) nets to a crisp 1px during the zoom glide
                       // (v0.2.312). Origin left keeps the line's left edge pinned to leftPct.
                       transform: "scaleX(var(--zoom-inv, 1))",

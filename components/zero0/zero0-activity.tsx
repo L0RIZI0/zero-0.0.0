@@ -292,7 +292,10 @@ export function Zero0Agenda({
                     : "Linear axis. Click for the experimental horizon (fisheye) axis."
                 }
                 aria-pressed={horizon}
-                className="absolute right-1 top-1 z-20 font-mono text-[9px] uppercase tracking-widest text-muted-foreground/40 transition-colors hover:text-foreground"
+                // BELOW the band, not inside the day-label strip: at top-right it sat exactly where the
+                // strip pins its final date (the horizon's end), hiding the very label the fisheye axis
+                // is meant to surface.
+                className="absolute -bottom-4 right-0 z-20 font-mono text-[9px] uppercase tracking-widest text-muted-foreground/40 transition-colors hover:text-foreground"
               >
                 {horizon ? "fisheye" : "linear"}
               </button>
