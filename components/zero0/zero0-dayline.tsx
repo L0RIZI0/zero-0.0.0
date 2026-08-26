@@ -2294,9 +2294,9 @@ export function Zero0Dayline({
             {headerContent}
           </div>
         ) : (
-          {/* h-3 (12px) exactly equalled the 10px text's line box, so glyph tops/descenders were shaved by
-              `overflow-hidden` (which is here to stop labels escaping the lane horizontally). h-4 gives a
-              little vertical slack; mb shrinks to keep the band's total height unchanged. */}
+          // h-3 (12px) exactly equalled the 10px text's line box, so glyph tops/descenders were shaved by
+          // `overflow-hidden` (which is here to stop labels escaping the lane horizontally). h-4 gives a
+          // little vertical slack; mb shrinks to keep the band's total height unchanged.
           <div className="relative mb-1 h-4 overflow-hidden text-[10px] uppercase tracking-wider text-muted-foreground/60">
             {headerContent}
           </div>
