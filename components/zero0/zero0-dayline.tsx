@@ -144,12 +144,30 @@ const ACCESS_HEIGHT_PX = 10
 // sized to the taller of its rail's content + RAIL_PAD, and the middle strip is inserted between
 // them, so the seam (spine center) = topHalf + MIDDLE_LANE_H/2. `middle=false` (legacy / non-
 // combined) collapses to the original two-rail band with no center strip.
-function bandMetrics(plannedCount: number, recordedCount: number, middle = false) {
+// v0.2.346 — RAIL VISIBILITY. The access spine and the recorded (session) rail are HIDDEN BY DEFAULT, so
+// the resting band is the planned rail alone. A hidden rail must not merely render nothing: the old
+// formula sized BOTH halves to `max(plannedH, recordedH)` to keep the seam centered, which with an empty
+// bottom rail would leave a tall dead half below the ticks. So when the session rail is off, the band is
+// sized to the VISIBLE content and that content is CENTERED — which is exactly the "stack displayed rails
+// in the middle" behaviour asked for. When both rails are shown the original symmetric-half math is
+// reproduced EXACTLY (same seam, same bandH), so restoring the rails restores the previous layout.
+function bandMetrics(
+  plannedCount: number,
+  recordedCount: number,
+  middle = false,
+  rails: { access: boolean; session: boolean } = { access: true, session: true },
+) {
   const plannedH = Math.max(1, plannedCount) * PLANNED_LANE_H
   const recordedH = Math.max(1, recordedCount) * RECORDED_LANE_H
-  const half = Math.max(plannedH, recordedH) + RAIL_PAD
-  const mid = middle ? MIDDLE_LANE_H : 0
-  return { seam: half + mid / 2, bandH: half * 2 + mid, half, mid }
+  const mid = middle && rails.access ? MIDDLE_LANE_H : 0
+  if (rails.session) {
+    const half = Math.max(plannedH, recordedH) + RAIL_PAD
+    return { seam: half + mid / 2, bandH: half * 2 + mid, half, mid }
+  }
+  // Planned (+ optional spine) only. Planned ticks stack UPWARD from the seam, occupying
+  // [seam - mid/2 - plannedH, seam - mid/2], so centering that block means seam = pad + plannedH + mid/2.
+  const bandH = plannedH + mid + 2 * RAIL_PAD
+  return { seam: RAIL_PAD + plannedH + mid / 2, bandH, half: RAIL_PAD + plannedH, mid }
 }
 // NOTE: the day label centers across the WHOLE top half [0, seam] (flex-centered) so it has
 // SYMMETRIC top/bottom margins between the band top and the (centered) seam — see its render below.
@@ -490,6 +508,10 @@ export function Zero0Dayline({
   highlightId = null,
   onEmptyClick,
   horizon = false,
+  showAccessRail = false,
+  showSessionRail = false,
+  onToggleRail,
+  onToggleAxis,
 }: {
   onOpen: (id: string) => void
   /** Right-click a tick → open the entity menu for that occurrence's entity. Optional so
@@ -529,6 +551,16 @@ export function Zero0Dayline({
    *  telling them apart by HEIGHT — planned ticks a fixed 20px, access a fixed 10px (see
    *  the height constants). */
   tracks?: "planned" | "access" | "both"
+  /** v0.2.346 — show the MIDDLE access spine on the combined band. OFF by default; the uzer restores it
+   *  from the band's right-click menu (Show → Access rail). */
+  showAccessRail?: boolean
+  /** v0.2.346 — show the BOTTOM recorded (session) rail. OFF by default; restored from Show → Session
+   *  rail. While hidden, `bandMetrics` centers the remaining rails instead of reserving an empty half. */
+  showSessionRail?: boolean
+  /** Persisted setter for the two flags above, called from the band's right-click menu. */
+  onToggleRail?: (rail: "access" | "session", next: boolean) => void
+  /** Flip the time axis between linear and fisheye (the old inline toggle, now a menu item). */
+  onToggleAxis?: (next: boolean) => void
   /** Optional node rendered in the header next to the label (e.g. the access lane's
    *  "3h 56m tracked" total). */
   trailing?: ReactNode
@@ -716,6 +748,27 @@ export function Zero0Dayline({
    */
   const [anchorOverride, setAnchorOverride] = useState<number | null>(null)
   const anchorTime = anchorOverride ?? warpNow
+
+  /**
+   * BAND MENU (v0.2.346) — right-click on EMPTY band area. Owns rail visibility and the axis mode, which
+   * is where the old inline `linear`/`fisheye` button went: at `-bottom-4` it was being clipped by the
+   * frame's `overflow-hidden` collapse wrapper, so it had become invisible and unreachable.
+   * Rendered locally (portaled) rather than routed through the canvas's entity-menu plumbing because
+   * these are view settings for THIS band, with no entity identity to dispatch on.
+   */
+  const [bandMenu, setBandMenu] = useState<{ x: number; y: number } | null>(null)
+  useEffect(() => {
+    if (!bandMenu) return
+    const close = () => setBandMenu(null)
+    // `capture` so a click that lands on a tick still dismisses first; `once` isn't enough because we
+    // also want scroll/resize to dismiss.
+    window.addEventListener("pointerdown", close, { capture: true })
+    window.addEventListener("blur", close)
+    return () => {
+      window.removeEventListener("pointerdown", close, { capture: true })
+      window.removeEventListener("blur", close)
+    }
+  }, [bandMenu])
 
   const horizonMarks = useMemo(() => {
     if (!horizon || !mounted) return [] as { start: number; end?: number }[]
@@ -1175,9 +1228,12 @@ export function Zero0Dayline({
   const { seam, bandH, mid } = useMemo(
     () =>
       combined
-        ? bandMetrics(plannedLanes.laneCount, recordedLanes.laneCount, true)
+        ? bandMetrics(plannedLanes.laneCount, recordedLanes.laneCount, true, {
+            access: showAccessRail,
+            session: showSessionRail,
+          })
         : bandMetrics(1, 1),
-    [combined, plannedLanes.laneCount, recordedLanes.laneCount],
+    [combined, plannedLanes.laneCount, recordedLanes.laneCount, showAccessRail, showSessionRail],
   )
   // COLLAPSE-ON-STOP (v0.2.258, rewritten IMPERATIVELY in .261). When a PLAYED session's OPEN
   // (fading) tail closes, the faded tail RETRACTS toward the solid start edge instead of snapping.
@@ -2346,6 +2402,73 @@ export function Zero0Dayline({
             {headerContent}
           </div>
         ))}
+      {/* BAND VIEW MENU (v0.2.346) — rail visibility + axis mode. Portaled to <body> in fixed coords so
+          it escapes the frame's `overflow-hidden` collapse wrapper, which is exactly what silently ate the
+          old inline axis toggle. Tagged `data-zero-menu` so the empty-click view-toggle logic knows a menu
+          dismissal is not a real empty click. */}
+      {bandMenu &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            data-zero-menu
+            role="menu"
+            aria-label="Dayline view options"
+            className="fixed z-[70] min-w-40 rounded-md border border-border bg-popover py-1 font-mono text-[10px] uppercase tracking-wider text-popover-foreground shadow-md"
+            style={{
+              // Flip toward the viewport when the click lands near an edge so the menu never overflows.
+              left: Math.min(bandMenu.x, window.innerWidth - 172),
+              top: Math.min(bandMenu.y, window.innerHeight - 132),
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            <div className="px-3 pb-1 pt-0.5 text-muted-foreground/50">Show</div>
+            {(
+              [
+                ["access", "Access rail", showAccessRail],
+                ["session", "Session rail", showSessionRail],
+              ] as const
+            ).map(([rail, label, on]) => (
+              <button
+                key={rail}
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={on}
+                className="flex w-full items-center gap-2 px-3 py-1 text-left uppercase hover:bg-accent hover:text-accent-foreground"
+                onClick={() => {
+                  onToggleRail?.(rail, !on)
+                  setBandMenu(null)
+                }}
+              >
+                <span className={cn("w-2", on ? "text-foreground" : "text-transparent")}>×</span>
+                {label}
+              </button>
+            ))}
+            <div className="mt-1 border-t border-border/60 px-3 pb-1 pt-1.5 text-muted-foreground/50">Axis</div>
+            {(
+              [
+                [false, "Linear"],
+                [true, "Fisheye"],
+              ] as const
+            ).map(([mode, label]) => (
+              <button
+                key={label}
+                type="button"
+                role="menuitemradio"
+                aria-checked={horizon === mode}
+                className="flex w-full items-center gap-2 px-3 py-1 text-left uppercase hover:bg-accent hover:text-accent-foreground"
+                onClick={() => {
+                  onToggleAxis?.(mode)
+                  setBandMenu(null)
+                }}
+              >
+                <span className={cn("w-2", horizon === mode ? "text-foreground" : "text-transparent")}>×</span>
+                {label}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
       {/* Lane row. Full mode reserves at LEAST the constant DAYLINE_ROW_H (34px) so the resting
           single-lane band sits at a stable height — but when the COMBINED band grows past that
           (multi sub-lane packing, `bandH` from bandMetrics), the row reserves the FULL band height
@@ -2361,6 +2484,15 @@ export function Zero0Dayline({
           onMouseEnter={() => (pointerInsideRef.current = true)}
           onMouseLeave={() => (pointerInsideRef.current = false)}
           onDoubleClick={recenter}
+          // Right-click on EMPTY band area opens the view menu. A tick's own `onContextMenu` calls
+          // `stopPropagation`-equivalent by handling it first, but ticks are absolutely positioned
+          // children, so also verify the event didn't originate on one before claiming it.
+          onContextMenu={(ev) => {
+            if (!combined || minimized) return
+            if ((ev.target as HTMLElement)?.closest("[data-barkey]")) return
+            ev.preventDefault()
+            setBandMenu({ x: ev.clientX, y: ev.clientY })
+          }}
           className="relative w-full cursor-default select-none overflow-visible rounded-md border border-border/60 bg-card/40 [touch-action:none]"
           // Combined lane GROWS with its busiest rail (band height from bandMetrics); other
           // lanes keep the resting single-lane band height (was the fixed `h-7` = 28px).
@@ -2489,7 +2621,16 @@ export function Zero0Dayline({
                   All ticks are vertically CENTERED; on the combined lane the tracks are
                   told apart by HEIGHT (planned taller, access shorter). */}
               {mounted &&
-                (combined ? [...planned, ...sessions, ...spine] : isAccess ? access : planned).map((p) => {
+                (combined
+              ? // v0.2.346 — ONE seam for rail visibility. Gating here (rather than inside the `sessions`
+                // and `spine` memos) keeps every derived structure those memos feed — lane packing, the
+                // FLIP collapse/entrance animations, `byKey` hover lookup — computing exactly as before,
+                // so toggling a rail back on cannot resurrect a half-initialised animation.
+                [...planned, ...(showSessionRail ? sessions : []), ...(showAccessRail ? spine : [])]
+              : isAccess
+                ? access
+                : planned
+            ).map((p) => {
                   const isHot = hoveredKey === p.key
                   // LIT — this tick's entity is the one being HOVERED in ENTITY CONTENT
                   // (hover-only; cleared on navigation, so never lit merely for being open).

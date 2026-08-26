@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { ROOT_ID, getEntity, getInheritedAccent } from "@/lib/zero/data"
 import { titleAt } from "@/lib/zero/entity-log"
 import {
@@ -20,6 +20,9 @@ import { Zero0FrameMarker } from "@/components/zero0/zero0-frame-marker"
 import { useZero0Readout, toggleZero0Readout } from "@/lib/zero/zero0-chord"
 import { formatLocale } from "@/lib/zero/format-locale"
 import type { EntityKind } from "@/lib/zero/types"
+
+/** localStorage key for the persisted dayline view settings (axis mode + rail visibility), v0.2.346. */
+const DAYLINE_VIEW_KEY = "zero0.dayline.view"
 
 /** Clock time (HH:MM) for a segment edge. Client-only (called under `mounted`). */
 function clock(epoch: number): string {
@@ -200,10 +203,58 @@ export function Zero0Agenda({
     }
   }, [minimized, expanded])
 
-  // HORIZON (fisheye) axis toggle — v0.2.345, EXPERIMENTAL and may be reverted, hence a local piece of
-  // state with no persistence rather than a real setting. Only meaningful on the maximized dayline: the
-  // minimized band is too short to read a warped axis, and the calendar stays linear by design.
-  const [horizon, setHorizon] = useState(false)
+  /**
+   * DAYLINE VIEW SETTINGS (v0.2.346) — axis mode + which rails are shown, all controlled from the band's
+   * right-click menu and PERSISTED per uzer.
+   *
+   * FISHEYE IS NOW THE DEFAULT (it was an opt-in experiment in .345). The access spine and the recorded
+   * session rail default to HIDDEN, so the resting band is the planned rail alone, centered.
+   *
+   * Read lazily from localStorage inside the initializer so the value is there on the FIRST paint — a
+   * `useEffect` hydration would render one frame of defaults and visibly flip the axis. Writes are guarded
+   * in a try/catch because localStorage throws in private-mode Safari, and a settings write must never be
+   * able to take down the dayline.
+   */
+  const [view, setView] = useState<{ horizon: boolean; access: boolean; session: boolean }>(() => {
+    const fallback = { horizon: true, access: false, session: false }
+    if (typeof window === "undefined") return fallback
+    try {
+      const raw = window.localStorage.getItem(DAYLINE_VIEW_KEY)
+      if (!raw) return fallback
+      const p = JSON.parse(raw) as Partial<typeof fallback>
+      return {
+        horizon: typeof p.horizon === "boolean" ? p.horizon : fallback.horizon,
+        access: typeof p.access === "boolean" ? p.access : fallback.access,
+        session: typeof p.session === "boolean" ? p.session : fallback.session,
+      }
+    } catch {
+      return fallback
+    }
+  })
+  const persistView = useCallback((next: { horizon: boolean; access: boolean; session: boolean }) => {
+    setView(next)
+    try {
+      window.localStorage.setItem(DAYLINE_VIEW_KEY, JSON.stringify(next))
+    } catch {
+      /* private-mode Safari — keep the in-memory value, just don't persist it */
+    }
+  }, [])
+  const horizon = view.horizon
+  const showAccessRail = view.access
+  const showSessionRail = view.session
+  // Mirror so the setters below don't need `view` as a dep (which would give them a new identity on every
+  // settings change and defeat the Dayline's memoized children). Declared BEFORE them to avoid a TDZ read.
+  const viewRef = useRef(view)
+  viewRef.current = view
+  const setHorizon = useCallback(
+    (next: boolean) => persistView({ ...viewRef.current, horizon: next }),
+    [persistView],
+  )
+  const setRailVisible = useCallback(
+    (rail: "access" | "session", next: boolean) => persistView({ ...viewRef.current, [rail]: next }),
+    [persistView],
+  )
+
   const morphing = morph !== null
   // Which real views are in the tree. During a morph both are mounted; the one being animated FROM/TO is
   // hidden (the overlay stands in). Steady state shows exactly one.
@@ -276,30 +327,15 @@ export function Zero0Agenda({
               highlightId={highlightId}
               onEmptyClick={startExpand}
               horizon={horizon && !minimized}
+              showAccessRail={showAccessRail}
+              showSessionRail={showSessionRail}
+              onToggleRail={setRailVisible}
+              onToggleAxis={setHorizon}
             />
-            {/* Experimental axis toggle (v0.2.345). Deliberately tiny + low-contrast: it is a dev
-                affordance, not a feature the frame should advertise. Hidden while minimized. */}
-            {!minimized && (
-              <button
-                type="button"
-                onClick={(ev) => {
-                  ev.stopPropagation()
-                  setHorizon((v) => !v)
-                }}
-                title={
-                  horizon
-                    ? "Horizon (fisheye) axis — dilates now + planned clusters, compresses dead space. Click for the linear axis."
-                    : "Linear axis. Click for the experimental horizon (fisheye) axis."
-                }
-                aria-pressed={horizon}
-                // BELOW the band, not inside the day-label strip: at top-right it sat exactly where the
-                // strip pins its final date (the horizon's end), hiding the very label the fisheye axis
-                // is meant to surface.
-                className="absolute -bottom-4 right-0 z-20 font-mono text-[9px] uppercase tracking-widest text-muted-foreground/40 transition-colors hover:text-foreground"
-              >
-                {horizon ? "fisheye" : "linear"}
-              </button>
-            )}
+            {/* v0.2.346 — the inline axis toggle used to live here. It moved INTO the band's right-click
+                menu (Axis → Linear/Fisheye) together with the new rail toggles: at `-bottom-4` it fell
+                outside the frame's `overflow-hidden` collapse wrapper and was clipped into invisibility,
+                and view settings belong in one discoverable place rather than as a floating dev button. */}
           </div>
         )}
       </div>
