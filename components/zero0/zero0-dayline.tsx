@@ -815,6 +815,10 @@ export function Zero0Dayline({
   // after enabling the axis, and the last label's right-edge clamp silently didn't apply (it rendered
   // off-lane and got clipped). Assigning here is safe: the value is derived from this render's `warp`.
   horizonActiveRef.current = horizonActive
+  // Same reasoning for the warp itself: the native wheel listener is registered once, so it needs a live
+  // handle to pan the anchor. Render-synced for the same reason as above.
+  const warpRef = useRef<TimeWarp | null>(null)
+  warpRef.current = warp
 
   // Off-screen render headroom scales with the zoom level so a pan always has bars queued either side.
   // In horizon mode there is no pan and nothing off-screen: the window IS the warp's full horizon, so the
@@ -1831,8 +1835,9 @@ export function Zero0Dayline({
         // the compressed stretches where an affine delta would badly overshoot.
         const anchorPct = LENS.nowAnchorFrac * 100
         const next = warp.timeAt(Math.max(0, Math.min(100, anchorPct - (inc / w) * 100)))
-        // Clamp so the band can't be dragged off into empty time on either side.
-        setAnchorOverride(Math.max(warpNow - 30 * DAY_MS, Math.min(warpNow + LENS.futureCapMs, next)))
+        // Clamp to the warp's own FIXED domain (see buildLensWarp) so the anchor can't be dragged past
+        // the horizon edges into time the axis doesn't cover.
+        setAnchorOverride(Math.max(warp.start, Math.min(warp.end, next)))
       } else {
         injectPan(inc)
         setViewStart(d.startView - (dx / w) * viewSpanRef.current)
@@ -2088,11 +2093,31 @@ export function Zero0Dayline({
     }
 
     const onWheel = (e: WheelEvent) => {
-      // HORIZON MODE (v0.2.345) — the whole horizon is already on screen, so neither scroll-pan nor
-      // pinch-zoom has anything to do. Bail BEFORE `preventDefault` so the gestures fall through to the
-      // page instead of being silently swallowed (a dead-feeling band is worse than one that doesn't
-      // claim the gesture). Both branches below rest on the axis being affine, which it isn't here.
-      if (horizonActiveRef.current) return
+      // HORIZON MODE — trackpad/wheel PAN moves the fisheye anchor (v0.2.346). This used to bail outright,
+      // which is why scrolling the band did nothing at all. The two branches below both assume an affine
+      // axis (they pan `winStart` and zoom a span), so horizon mode gets its own path: convert the wheel
+      // delta to a pixel offset from the anchor and ask the warp's inverse which time lands there.
+      //
+      // PINCH-ZOOM still has no meaning here (the domain is content-derived, not a zoomable span), so a
+      // ctrl-wheel is left alone and falls through to the page rather than being swallowed.
+      if (horizonActiveRef.current) {
+        const hw = warpRef.current
+        if (!hw || e.ctrlKey) return
+        let d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+        if (d === 0) return
+        e.preventDefault()
+        if (e.deltaMode === 1) d *= 16
+        else if (e.deltaMode === 2) d *= lane.clientWidth || 1
+        const lw = lane.clientWidth || 1
+        const anchorPct = LENS.nowAnchorFrac * 100
+        // Scroll right (d > 0) should advance time, mirroring the drag's inverted sign.
+        const next = hw.timeAt(Math.max(0, Math.min(100, anchorPct + (d / lw) * 100)))
+        setAnchorOverride(Math.max(hw.start, Math.min(hw.end, next)))
+        cursorColRef.current = pctToCol(e.clientX)
+        lastPointerRef.current = { x: e.clientX, y: e.clientY }
+        pointerInsideRef.current = true
+        return
+      }
       // PINCH-ZOOM (v0.2.303, EASED v0.2.305) — a trackpad pinch is delivered as a wheel event with
       // `ctrlKey` set (the browser/OS synthesizes it; a real Ctrl+scroll is the same gesture intent =
       // zoom). Spread fingers ��� deltaY < 0 ⇒ SMALLER span ⇒ zoom IN; pinch together ⇒ zoom OUT. Each

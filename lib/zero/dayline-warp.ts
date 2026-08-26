@@ -365,7 +365,7 @@ function allocSide(
   t0: number,
   t1: number,
   sideW: number,
-  lenses: { start: number; end: number }[],
+  lenses: { start: number; end: number; want?: number }[],
   want: number,
   out: Seg[],
 ): void {
@@ -376,10 +376,14 @@ function allocSide(
   }
   const nGaps = lenses.length + 1
   const reserved = Math.min(sideW * 0.5, nGaps * LENS.minGapPx)
-  const askTotal = lenses.length * want
+  // Each lens may carry its OWN budget: a lens straddling the anchor is split across the two sides, and
+  // its halves share a single lens budget rather than each claiming a full one (which would make a lens
+  // visibly double in width the moment the anchor crossed it).
+  const asks = lenses.map((l) => l.want ?? want)
+  const askTotal = asks.reduce((a, b) => a + b, 0)
   const lensBudget = Math.max(0, sideW - reserved)
   const scale = askTotal > lensBudget ? lensBudget / askTotal : 1
-  const lensPx = lenses.map(() => Math.max(LENS.minTickPx, want * scale))
+  const lensPx = asks.map((a) => Math.max(LENS.minTickPx, a * scale))
 
   // Gap durations, including the two edge gaps. Negative slivers clamp to 0.
   const gapMs: number[] = []
@@ -426,16 +430,27 @@ export function buildLensWarp(
 ): LensWarp | null {
   if (!(viewportW > 0)) return null
 
-  // ── Domain. Future is content-driven but hard-capped at 6 months; past is fixed. The anchor can be
-  // panned outside [now-past, now+cap], so the domain is widened to always contain it.
+  // ── Domain. Future is content-driven but hard-capped at 6 months; past is fixed.
+  //
+  // ⚠️ THE DOMAIN MUST DEPEND ONLY ON `now`, NEVER ON `anchorTime`. Deriving `lo`/`hi` from the anchor
+  // (as the first cut did) makes panning a NO-OP: shifting the anchor shifts the whole domain by the same
+  // amount, and since the anchor is by definition always drawn at `nowAnchorFrac`, the rendered output is
+  // pixel-identical. The drag fired, state updated, React re-rendered — to the exact same picture.
+  //
+  // With the domain pinned, moving the anchor instead REDISTRIBUTES the axis: times left of the anchor
+  // share `nowAnchorFrac` of the width and times right of it share the rest, so panning forward pulls
+  // distant future into the dilated majority of the lane. That is the meaningful pan for a whole-horizon
+  // axis — there is no off-screen content to translate into view, so panning moves the FOCUS, not a window.
   const lastMark = marks.reduce((mx, m) => Math.max(mx, m.end ?? m.start), Number.NEGATIVE_INFINITY)
   const futureWanted = Number.isFinite(lastMark)
     ? Math.min(LENS.futureCapMs, Math.max(LENS.minFutureMs, lastMark + LENS.tailPadMs - now))
     : LENS.minFutureMs
-  const lo = Math.min(now - LENS.pastMs, anchorTime - LENS.pastMs)
-  const hi = Math.max(now + futureWanted, anchorTime + LENS.minFutureMs)
+  const lo = now - LENS.pastMs
+  const hi = now + futureWanted
   if (hi <= lo) return null
-  const anchor = Math.min(hi, Math.max(lo, anchorTime))
+  // Keep a sliver of domain on each side so neither `allocSide` call gets a zero-length time span.
+  const edge = Math.min(HOUR_MS, (hi - lo) / 8)
+  const anchor = Math.min(hi - edge, Math.max(lo + edge, anchorTime))
 
   // ── Focus intervals: clip to domain, give points a nominal span, sort, drop empties.
   let ivals = marks
@@ -497,14 +512,18 @@ export function buildLensWarp(
   // ── Split at the anchor so the 1/3 rule is exact. An interval straddling the anchor is cut in two, each
   // half living in its own side's budget.
   const leftW = viewportW * LENS.nowAnchorFrac
-  const left: { start: number; end: number }[] = []
-  const right: { start: number; end: number }[] = []
+  const left: { start: number; end: number; want?: number }[] = []
+  const right: { start: number; end: number; want?: number }[] = []
   for (const i of ivals) {
     if (i.end <= anchor) left.push(i)
     else if (i.start >= anchor) right.push(i)
     else {
-      left.push({ start: i.start, end: anchor })
-      right.push({ start: anchor, end: i.end })
+      // Straddles the anchor. Split the TIME at the anchor and split the PIXEL BUDGET in the same ratio,
+      // so the two halves still add up to one lens worth of width.
+      const span = Math.max(1, i.end - i.start)
+      const frac = Math.min(1, Math.max(0, (anchor - i.start) / span))
+      left.push({ start: i.start, end: anchor, want: want * frac })
+      right.push({ start: anchor, end: i.end, want: want * (1 - frac) })
     }
   }
 
