@@ -2327,14 +2327,11 @@ export function Zero0Dayline({
       return true
     }
 
-    // ANCHORS, in priority order: today first, then each occurrence's START, then each END. Starts
-    // outrank ends so a short occurrence in a compressed stretch labels the day it BEGINS.
-    const anchorTimes: number[] = [todayMidnight]
-    for (const m of horizonMarks) anchorTimes.push(midnightOf(m.start))
-    for (const m of horizonMarks) if (m.end != null) anchorTimes.push(midnightOf(m.end))
+    // Claim label room for the anchors FIRST (they were unioned into `days` above), so backfill can only
+    // take whatever space they leave rather than crowding them out.
     const anchored = new Set<number>()
     for (const at of anchorTimes) {
-      if (anchored.has(at) || at < days[0]?.t || at > hi) continue
+      if (anchored.has(at) || !seen.has(at)) continue
       if (tryKeep(pctFor(at))) anchored.add(at)
     }
 
