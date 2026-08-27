@@ -1844,7 +1844,9 @@ export function Zero0Dayline({
         // the compressed stretches where an affine delta would badly overshoot.
         // 1:1 PIXEL PAN (v0.2.347). Dragging left (`inc < 0`) reveals later time, so scroll increases.
         // The clamp lives in the builder, which knows `maxScrollPx`.
-        setScrollOverride((prev) => (prev ?? warp.restScrollPx) - inc)
+        setScrollOverride((prev) =>
+          Math.max(0, Math.min(warp.maxScrollPx, (prev ?? warp.restScrollPx) - inc)),
+        )
       } else {
         injectPan(inc)
         setViewStart(d.startView - (dx / w) * viewSpanRef.current)
@@ -2115,7 +2117,11 @@ export function Zero0Dayline({
         e.preventDefault()
         if (e.deltaMode === 1) d *= 16
         else if (e.deltaMode === 2) d *= lane.clientWidth || 1
-        setScrollOverride((prev) => (prev ?? hw.restScrollPx) + d)
+        // Clamp AT THE SETTER, not just in the builder: an unclamped state can run far past the legal
+        // range while the uzer keeps scrolling at an edge, and reversing then feels dead until it unwinds.
+        setScrollOverride((prev) =>
+          Math.max(0, Math.min(hw.maxScrollPx, (prev ?? hw.restScrollPx) + d)),
+        )
         cursorColRef.current = pctToCol(e.clientX)
         lastPointerRef.current = { x: e.clientX, y: e.clientY }
         pointerInsideRef.current = true
@@ -2207,11 +2213,19 @@ export function Zero0Dayline({
   // Commas are stripped so the label reads as a clean uppercase triple (some locales
   // render "Fri, Jul 10").
   const shortDay = useCallback(
-    (epoch: number) =>
-    new Date(epoch)
-      .toLocaleDateString(formatLocale(), { weekday: "short", month: "short", day: "2-digit" })
-      .replace(/,/g, "")
-      .toUpperCase(),
+    (epoch: number, withYear = false) =>
+      new Date(epoch)
+        .toLocaleDateString(formatLocale(), {
+          weekday: "short",
+          month: "short",
+          day: "2-digit",
+          // v0.2.347 — the scroll axis can pan to 19XX/21XX, where a bare "SAT MAY 12" is ambiguous
+          // (and looked like a bug: four such labels appeared side by side from four different years).
+          // The year is opt-in so the common same-year case keeps the tight uppercase triple.
+          ...(withYear ? { year: "numeric" as const } : {}),
+        })
+        .replace(/,/g, "")
+        .toUpperCase(),
     [],
   )
 
@@ -2248,7 +2262,8 @@ export function Zero0Dayline({
     // lane so the collision test happens in the same units as `leftPct`. The ref read is a best-effort
     // hint (700 is a sane pre-layout fallback) and being slightly off only changes how many dates survive.
     const laneW = laneRef.current?.clientWidth || 700
-    const minGapPct = (72 / laneW) * 100
+    // `let` because horizon mode widens this once it knows whether labels will carry a year (below).
+    let minGapPct = (72 / laneW) * 100
     const midnightOf = (t: number) => {
       const d = new Date(t)
       d.setHours(0, 0, 0, 0)
@@ -2304,6 +2319,15 @@ export function Zero0Dayline({
     for (const m of horizonMarks) if (m.end != null) anchorTimes.push(midnightOf(m.end))
     for (const at of anchorTimes) pushDay(at)
     days.sort((a, b) => a.t - b.t)
+
+    // YEAR QUALIFICATION (v0.2.347). Panning now reaches 19XX/21XX, so a bare "SAT MAY 12" is ambiguous.
+    // Decided ONCE PER WINDOW rather than per label: a mixed row (some labels with a year, some without)
+    // reads as inconsistent, and a per-label width would make the collision test asymmetric — a narrow
+    // label could claim a slot its wider neighbour then overlaps. Widen the reserved gap to match the
+    // longer glyph run ("SAT MAY 12 2027") so spacing stays honest.
+    const todayYear = new Date(todayMidnight).getFullYear()
+    const withYear = days.some((d) => new Date(d.t).getFullYear() !== todayYear)
+    if (withYear) minGapPct = (108 / laneW) * 100
     // Kept label positions, kept SORTED so a candidate can be tested against its nearest neighbour on
     // BOTH sides — a one-sided "clears the last kept" test is what let backfill crowd an anchor.
     const kept: number[] = []
@@ -2344,11 +2368,13 @@ export function Zero0Dayline({
       return {
         key: `day:${d.t}`,
         leftPct: d.leftPct,
-        label: shortDay(d.t),
+        label: shortDay(d.t, withYear),
         labeled,
-        // Below ~4px apart the lines stop reading as separate days, so fade them into a texture rather
-        // than letting them merge into a solid block. Floored so the grid never fully disappears.
-        lineOpacity: Math.max(0.2, Math.min(1, gapPx / 4)),
+        // Below ~6px apart the lines stop reading as separate days, so fade them into a texture rather
+        // than letting them merge into a solid block. v0.2.347 widened the divisor and dropped the floor
+        // (was 4px / 0.2): the geometric dead-space law packs far more midnights into the compressed
+        // stretches than the old uniform one, and at 0.2 that read as heavy hatching rather than texture.
+        lineOpacity: Math.max(0.1, Math.min(1, gapPx / 6)),
       }
     })
   }, [mounted, isAccess, lo, hi, winStart, shortDay, pctFor, warp, horizonMarks, todayMidnight])

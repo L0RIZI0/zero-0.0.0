@@ -71,6 +71,22 @@ export const PAN = {
   /** Lenses whose dead gap would render thinner than this merge into one. */
   mergeGapPx: 12,
 
+  /**
+   * A dead run longer than this is subdivided into GEOMETRIC (octave) sub-segments instead of staying one
+   * linearly-interpolated block — see `pushDeadRun`. Runs shorter than this are left as a single segment,
+   * where uniform pace is correct and cheaper.
+   */
+  deadSplitMs: 60 * DAY_MS,
+  /** Safety bound on octaves per run. 64 doublings covers far more than the 125-year domain. */
+  maxDeadBuckets: 64,
+  /**
+   * How a dead run's width is shared across its octaves: `weight = spanDays ^ deadBucketExponent`.
+   * Since an octave's px-per-day is `weight / span`, pace falls off as `span^(exp-1)` — so LOWER means
+   * more width near now and harder compression far away. At 0.5 (plain sqrt) the rest view still showed
+   * ~750 days of past; 0.25 brings that to ~2 months while leaving the 1900s a flick away.
+   */
+  deadBucketExponent: 0.25,
+
   /** Zero-duration marks (Instants, `at`/`due` points) get this much nominal span so their lens isn't
    *  degenerate — a 0ms lens consumes width but renders 0px of tick. */
   pointSpanMs: 2 * HOUR_MS,
@@ -195,22 +211,73 @@ export function buildScrollLensWarp(
   const segs: Seg[] = []
   let x = 0
   let cursor = lo
+
+  /**
+   * Emit a dead (compressed) run, subdividing long ones GEOMETRICALLY.
+   *
+   * ⚠️ Why this exists: `deadGapPx` makes a run's TOTAL width sublinear, but a single segment interpolates
+   * LINEARLY inside itself — so pace is uniform across the whole run. For the ±125-year outer runs that is
+   * badly wrong: 1.8kpx over 45,600 days is ~25 days/px *everywhere*, including the pixels immediately
+   * beside today. The rest view's left third was showing a DECADE, with day labels from four different
+   * years sitting side by side.
+   *
+   * Fix: split the run into octaves (1d, 2d, 4d, …) measured OUTWARD FROM THE END NEAREST NOW, and
+   * allocate the run's existing total width across them by `sqrt(span)`. Two properties follow:
+   *  - Total width is UNCHANGED, so pannability and all the tuning above still hold.
+   *  - Pace decreases monotonically with distance from now: the near octave ends up ~250x finer than the
+   *    deepest one, so recent past stays legible while the 1900s still compress into a flick.
+   */
+  const pushDeadRun = (t0: number, t1: number) => {
+    const span = t1 - t0
+    if (span <= 0) return
+    const total = deadGapPx(span)
+    if (span <= PAN.deadSplitMs) {
+      segs.push({ t0, t1, x0: x, x1: x + total, lens: false })
+      x += total
+      return
+    }
+    // Octave boundaries as offsets from the anchor end, nearest-first.
+    const offsets: number[] = []
+    let step = DAY_MS
+    let acc = 0
+    while (acc < span && offsets.length < PAN.maxDeadBuckets) {
+      acc = Math.min(span, acc + step)
+      offsets.push(acc)
+      step *= 2
+    }
+    offsets[offsets.length - 1] = span
+    // `true` when the near-now edge is t1, which is the case for the PAST run (and for interior runs that
+    // sit before now). The finest octaves must then land LAST in chronological order.
+    const nearIsEnd = Math.abs(now - t1) <= Math.abs(now - t0)
+    const buckets: { a: number; b: number; w: number }[] = []
+    let prev = 0
+    for (const off of offsets) {
+      const bSpan = off - prev
+      if (bSpan > 0) buckets.push({ a: prev, b: off, w: Math.pow(bSpan / DAY_MS, PAN.deadBucketExponent) })
+      prev = off
+    }
+    const wSum = buckets.reduce((a, b) => a + b.w, 0) || 1
+    // Chronological emission: nearest-first buckets are reversed when the anchor is the run's END.
+    const ordered = nearIsEnd ? buckets.slice().reverse() : buckets
+    for (const bk of ordered) {
+      const px = (total * bk.w) / wSum
+      const s0 = nearIsEnd ? t1 - bk.b : t0 + bk.a
+      const s1 = nearIsEnd ? t1 - bk.a : t0 + bk.b
+      segs.push({ t0: s0, t1: s1, x0: x, x1: x + px, lens: false })
+      x += px
+    }
+  }
+
   for (const l of lenses) {
     if (l.start > cursor) {
-      const w = deadGapPx(l.start - cursor)
-      segs.push({ t0: cursor, t1: l.start, x0: x, x1: x + w, lens: false })
-      x += w
+      pushDeadRun(cursor, l.start)
       cursor = l.start
     }
     segs.push({ t0: l.start, t1: l.end, x0: x, x1: x + lensPx, lens: true })
     x += lensPx
     cursor = l.end
   }
-  if (hi > cursor) {
-    const w = deadGapPx(hi - cursor)
-    segs.push({ t0: cursor, t1: hi, x0: x, x1: x + w, lens: false })
-    x += w
-  }
+  if (hi > cursor) pushDeadRun(cursor, hi)
   if (!segs.length) return null
   let contentW = x
 
