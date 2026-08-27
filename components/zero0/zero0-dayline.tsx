@@ -17,7 +17,8 @@ import { isSleepTitle, sleepSkyBackground } from "@/lib/zero/sleep-sky"
 import { DAYLINE_ROW_H } from "@/lib/zero/layout"
 import { useNowSeconds, useAnimationFrameNow } from "@/lib/zero/use-now"
 import { formatLocale } from "@/lib/zero/format-locale"
-import { buildLensWarp, chooseGuideStep, HORIZON, LENS, type TimeWarp } from "@/lib/zero/dayline-warp"
+import { chooseGuideStep, HORIZON } from "@/lib/zero/dayline-warp"
+import { buildScrollLensWarp, PAN, type ScrollLensWarp } from "@/lib/zero/dayline-lens"
 import { Zero0Glyph } from "./zero0-glyph"
 import { cn } from "@/lib/utils"
 
@@ -741,13 +742,14 @@ export function Zero0Dayline({
   }, [mounted])
 
   /**
-   * PAN ANCHOR (v0.2.346). `null` = follow NOW, which is the rest state: NOW sits at 1/3 of the lane.
-   * Dragging sets an explicit anchor time, which is how panning works on a non-linear axis — you cannot
-   * re-anchor `winStart` by an affine `dx/w * viewSpan` when a pixel buys a different amount of time at
-   * every position. Instead the drag asks the warp's own inverse which time is now under the anchor.
+   * SCROLL OFFSET (v0.2.347). `null` = rest, i.e. NOW at 1/3 of the lane.
+   *
+   * This replaces .346's pan-by-anchor-time. The axis is now laid out in its own content space that is
+   * WIDER than the lane, so panning is a plain pixel offset into it — which makes the gesture exactly 1:1
+   * and structurally incapable of being a no-op (the .346 bug, where moving the anchor also moved the
+   * domain and rendered an identical picture).
    */
-  const [anchorOverride, setAnchorOverride] = useState<number | null>(null)
-  const anchorTime = anchorOverride ?? warpNow
+  const [scrollOverride, setScrollOverride] = useState<number | null>(null)
 
   /**
    * BAND MENU (v0.2.346) — right-click on EMPTY band area. Owns rail visibility and the axis mode, which
@@ -773,9 +775,10 @@ export function Zero0Dayline({
   const horizonMarks = useMemo(() => {
     if (!horizon || !mounted) return [] as { start: number; end?: number }[]
     const out: { start: number; end?: number }[] = []
-    // Gather across the full pannable range, not just the visible horizon: the anchor can slide, and marks
-    // must already be known when it does. `buildLensWarp` drops whatever falls outside the live domain.
-    for (const occ of getDaylineOccurrences(now - HORIZON.maxPastMs, now + LENS.futureCapMs + DAY_MS, now)) {
+    // Gather over the LENS window, which is deliberately far narrower than the 250-year pannable domain:
+    // the recurrence engine expands rules per-day, so asking it for centuries of a daily rule would be
+    // ~90,000 occurrences. Marks outside this window still render as bars — they just don't earn a lens.
+    for (const occ of getDaylineOccurrences(now - PAN.markGatherPastMs, now + PAN.markGatherFutureMs, now)) {
       const s = occ.schedule
       if (!s) continue
       const st = (typeof s.startDate === "number" ? s.startDate : undefined) ?? s.at ?? s.dueDate
@@ -786,9 +789,12 @@ export function Zero0Dayline({
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `now` is intentionally read via probeBucket
   }, [horizon, mounted, dataRev, activityRevision, probeBucket])
-  const warp = useMemo<TimeWarp | null>(
-    () => (horizon && mounted && laneWidthPx > 0 ? buildLensWarp(warpNow, horizonMarks, laneWidthPx, anchorTime) : null),
-    [horizon, mounted, warpNow, horizonMarks, laneWidthPx, anchorTime],
+  const warp = useMemo<ScrollLensWarp | null>(
+    () =>
+      horizon && mounted && laneWidthPx > 0
+        ? buildScrollLensWarp(warpNow, horizonMarks, laneWidthPx, scrollOverride)
+        : null,
+    [horizon, mounted, warpNow, horizonMarks, laneWidthPx, scrollOverride],
   )
   /**
    * THE SINGLE TIME→X SEAM. Every geometry site in this file routes through this one function, which is
@@ -817,15 +823,18 @@ export function Zero0Dayline({
   horizonActiveRef.current = horizonActive
   // Same reasoning for the warp itself: the native wheel listener is registered once, so it needs a live
   // handle to pan the anchor. Render-synced for the same reason as above.
-  const warpRef = useRef<TimeWarp | null>(null)
+  const warpRef = useRef<ScrollLensWarp | null>(null)
   warpRef.current = warp
 
   // Off-screen render headroom scales with the zoom level so a pan always has bars queued either side.
-  // In horizon mode there is no pan and nothing off-screen: the window IS the warp's full horizon, so the
-  // margin collapses to zero and anything outside the horizon is genuinely not shown.
+  //
+  // ⚠️ In horizon mode `lo`/`hi` are the VISIBLE time window, NOT the warp's domain (v0.2.347). The domain
+  // is now ±125 years, and these two bounds feed every per-day/per-hour loop below — iterating the domain
+  // would be ~90,000 day steps per paint. The warp already reports the visible slice with a px margin
+  // baked in, so bars and guides are built for what can actually be seen, and panning re-derives it.
   const renderMargin = warp ? 0 : viewSpan * 1.5
-  const lo = warp ? warp.start : winStart - renderMargin
-  const hi = warp ? warp.end : winStart + viewSpan + renderMargin
+  const lo = warp ? warp.visibleStart : winStart - renderMargin
+  const hi = warp ? warp.visibleEnd : winStart + viewSpan + renderMargin
 
   // PLANNED bars — SCHEDULED occurrences from the real entity graph (whole tree from
   // s_root), expanded across the window by the recurrence engine. Colored by the
@@ -1833,11 +1842,9 @@ export function Zero0Dayline({
         // time lives there. Asking the warp's inverse for the time currently `inc` px to the left of the
         // anchor makes the content track the pointer 1:1 at the focus, and stay geometrically correct in
         // the compressed stretches where an affine delta would badly overshoot.
-        const anchorPct = LENS.nowAnchorFrac * 100
-        const next = warp.timeAt(Math.max(0, Math.min(100, anchorPct - (inc / w) * 100)))
-        // Clamp to the warp's own FIXED domain (see buildLensWarp) so the anchor can't be dragged past
-        // the horizon edges into time the axis doesn't cover.
-        setAnchorOverride(Math.max(warp.start, Math.min(warp.end, next)))
+        // 1:1 PIXEL PAN (v0.2.347). Dragging left (`inc < 0`) reveals later time, so scroll increases.
+        // The clamp lives in the builder, which knows `maxScrollPx`.
+        setScrollOverride((prev) => (prev ?? warp.restScrollPx) - inc)
       } else {
         injectPan(inc)
         setViewStart(d.startView - (dx / w) * viewSpanRef.current)
@@ -1881,7 +1888,7 @@ export function Zero0Dayline({
   // Recentering must also release the pan anchor, or horizon mode would snap its linear window back while
   // the fisheye stayed parked wherever the last drag left it.
   const recenter = useCallback(() => {
-    setAnchorOverride(null)
+    setScrollOverride(null)
     setViewStart(dayWindow(Date.now(), viewSpanRef.current)[0])
   }, [])
 
@@ -2093,13 +2100,13 @@ export function Zero0Dayline({
     }
 
     const onWheel = (e: WheelEvent) => {
-      // HORIZON MODE — trackpad/wheel PAN moves the fisheye anchor (v0.2.346). This used to bail outright,
-      // which is why scrolling the band did nothing at all. The two branches below both assume an affine
-      // axis (they pan `winStart` and zoom a span), so horizon mode gets its own path: convert the wheel
-      // delta to a pixel offset from the anchor and ask the warp's inverse which time lands there.
+      // HORIZON MODE — trackpad/wheel scrolls the content window (v0.2.347). The two branches below both
+      // assume an affine axis (they pan `winStart` and zoom a span), so horizon mode takes its own path.
+      // Now that the axis lives in a scrollable content space this is just a pixel offset, 1:1 with the
+      // gesture — no inverse-warp step at all.
       //
-      // PINCH-ZOOM still has no meaning here (the domain is content-derived, not a zoomable span), so a
-      // ctrl-wheel is left alone and falls through to the page rather than being swallowed.
+      // PINCH-ZOOM still has no meaning here (content width is derived from the marks, not a zoomable
+      // span), so a ctrl-wheel is left alone and falls through to the page rather than being swallowed.
       if (horizonActiveRef.current) {
         const hw = warpRef.current
         if (!hw || e.ctrlKey) return
@@ -2108,11 +2115,7 @@ export function Zero0Dayline({
         e.preventDefault()
         if (e.deltaMode === 1) d *= 16
         else if (e.deltaMode === 2) d *= lane.clientWidth || 1
-        const lw = lane.clientWidth || 1
-        const anchorPct = LENS.nowAnchorFrac * 100
-        // Scroll right (d > 0) should advance time, mirroring the drag's inverted sign.
-        const next = hw.timeAt(Math.max(0, Math.min(100, anchorPct + (d / lw) * 100)))
-        setAnchorOverride(Math.max(hw.start, Math.min(hw.end, next)))
+        setScrollOverride((prev) => (prev ?? hw.restScrollPx) + d)
         cursorColRef.current = pctToCol(e.clientX)
         lastPointerRef.current = { x: e.clientX, y: e.clientY }
         pointerInsideRef.current = true
@@ -2241,22 +2244,6 @@ export function Zero0Dayline({
   const dayMarkers = useMemo(() => {
     type DayMarker = { key: string; leftPct: number; label: string; labeled: boolean; lineOpacity: number }
     if (!mounted || isAccess) return [] as DayMarker[]
-    const firstMidnight = new Date(lo)
-    firstMidnight.setHours(0, 0, 0, 0)
-    const days: { t: number; leftPct: number }[] = []
-    for (let t = firstMidnight.getTime(); t <= hi; t += DAY_MS) days.push({ t, leftPct: pctFor(t) })
-
-    // LINEAR mode: unchanged — every midnight is a line AND a label, at full strength.
-    if (!warp) {
-      return days.map((d) => ({
-        key: `day:${d.t}`,
-        leftPct: d.leftPct,
-        label: shortDay(d.t),
-        labeled: true,
-        lineOpacity: 1,
-      }))
-    }
-
     // A day label is ~54px ("MON AUG 24"); 72 leaves it visible breathing room. Expressed as a % of the
     // lane so the collision test happens in the same units as `leftPct`. The ref read is a best-effort
     // hint (700 is a sane pre-layout fallback) and being slightly off only changes how many dates survive.
@@ -2267,6 +2254,56 @@ export function Zero0Dayline({
       d.setHours(0, 0, 0, 0)
       return d.getTime()
     }
+
+    // LINEAR mode: unchanged — every midnight across the buffered window is a line AND a label, at full
+    // strength. The window is a bounded zoom span, so stepping by day is cheap here.
+    if (!warp) {
+      const days: { t: number; leftPct: number }[] = []
+      for (let t = midnightOf(lo); t <= hi; t += DAY_MS) days.push({ t, leftPct: pctFor(t) })
+      return days.map((d) => ({
+        key: `day:${d.t}`,
+        leftPct: d.leftPct,
+        label: shortDay(d.t),
+        labeled: true,
+        lineOpacity: 1,
+      }))
+    }
+
+    // ── HORIZON: SAMPLE IN PIXEL SPACE, NOT TIME SPACE (v0.2.347).
+    //
+    // Stepping day-by-day is now untenable and, worse, badly proportioned. The visible slice of a
+    // sublinearly-compressed axis can span a CENTURY when scrolled deep into dead space (~45,000 day
+    // steps), while a 179px lens covers barely a day. A uniform time step therefore burns almost all its
+    // iterations in compressed stretches — the exact places where the lines can't be told apart anyway.
+    //
+    // Walking the LANE instead inverts that: cost is bounded by lane width (~450 samples), and sample
+    // density automatically follows the warp. Dilated regions get a line per midnight (a day is >> the
+    // step there, so no midnight is missed); compressed runs collapse to a regular texture at the step
+    // spacing, which is what makes the Aug→Sep dead run read as tight instead of a grey picket fence.
+    const SAMPLE_PX = 2
+    const seen = new Set<number>()
+    const days: { t: number; leftPct: number }[] = []
+    const pushDay = (t: number) => {
+      if (t < lo || t > hi || seen.has(t)) return
+      seen.add(t)
+      days.push({ t, leftPct: pctFor(t) })
+    }
+    for (let px = -PAN.edgeMarginPx; px <= laneW + PAN.edgeMarginPx; px += SAMPLE_PX) {
+      pushDay(midnightOf(warp.timeAt((px / laneW) * 100)))
+    }
+
+    // ANCHORS, in priority order: today first, then each occurrence's START, then each END. Starts
+    // outrank ends so a short occurrence in a compressed stretch labels the day it BEGINS.
+    //
+    // These are UNIONED into the sampled set before anything else: an anchor day sitting inside a
+    // compressed run can easily fall between two pixel samples, and a day that isn't in `days` can never
+    // be labeled no matter how high its priority. That would silently resurrect the .345 bug where an
+    // occurrence's own start date went unlabeled while its neighbours kept theirs.
+    const anchorTimes: number[] = [todayMidnight]
+    for (const m of horizonMarks) anchorTimes.push(midnightOf(m.start))
+    for (const m of horizonMarks) if (m.end != null) anchorTimes.push(midnightOf(m.end))
+    for (const at of anchorTimes) pushDay(at)
+    days.sort((a, b) => a.t - b.t)
     // Kept label positions, kept SORTED so a candidate can be tested against its nearest neighbour on
     // BOTH sides — a one-sided "clears the last kept" test is what let backfill crowd an anchor.
     const kept: number[] = []
