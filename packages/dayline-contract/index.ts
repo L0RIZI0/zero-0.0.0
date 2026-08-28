@@ -60,6 +60,10 @@ export type OccRef = unknown
  * Zero already renders (spin while ongoing, 180° flip when a Space has a future planned occurrence,
  * strike when cancelled, check when done). If the engine wants Zero's EXACT silhouettes later, we add an
  * optional `svgPath` here and the adapter supplies it — but that is a v2 nicety, not a v1 requirement.
+ *
+ * EXACT GEOMETRY: `glyphs.ts` in this package is the pixel-faithful, canvas-ready spec for every kind's
+ * silhouette and state overlay (extracted verbatim from Zero's live renderer). Draw from that; the flags
+ * on this interface map 1:1 onto its STATE MODIFIERS section.
  */
 export interface DaylineGlyph {
   kind: DaylineKind
