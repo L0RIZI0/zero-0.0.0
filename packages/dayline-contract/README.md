@@ -102,6 +102,30 @@ The engine ships as a **versioned package** Zero depends on — nothing is copy/
 Both sides depend on **this** package for the types, so a breaking change is a compile error, not a
 surprise. Bump `DAYLINE_CONTRACT_VERSION` (and the major) on any breaking shape change.
 
+## Zero-side adapter — IMPLEMENTED (v0, Aug 2026)
+
+The adapter Grok asked for is written and typechecks against this contract:
+
+- **`lib/dayline-adapter/build-input.ts`** — `buildDaylineInput({ lo, hi, now, rails })` → `DaylineData`.
+  It reuses Zero's existing `getCalendarBars` seam (the absolute-time `CalBar` classification the dayline
+  and calendar already share) and adds glyph resolution via `getFaceModel`. It is a field map, not a
+  second copy of the scheduling rules.
+- **`components/zero0/zero0-dayline-canvas.tsx`** — `Zero0DaylineCanvas`, the React "mount + update" host:
+  hands the engine a `<canvas>`, streams `data`/`theme`, drives `resize` via a `ResizeObserver`, forwards
+  intent callbacks through a ref (so new closures don't remount the engine), and `destroy`s on unmount.
+  Also exports `readDaylineTheme()` to resolve Zero's CSS custom properties into concrete colors.
+- **`lib/dayline/index.ts`** — a PLACEHOLDER engine implementing `mountDayline` (crude linear render).
+  Grok's real `@/lib/dayline` engine replaces this file wholesale; because it's the same import + args +
+  handle, the swap is drop-in. The `.347` scroll dayline stays the working view until then.
+
+### ⚠️ ONE API DETAIL TO CONFIRM WITH GROK
+
+Grok's sample showed `mountDayline({ surface, data, theme, ...callbacks })` — callbacks **spread at the top
+level**. This contract nests them under a `callbacks` key (`{ surface, data, theme, callbacks, options }`),
+and the adapter + placeholder both use the nested form. Pick one; the nested form keeps `options` and any
+future groups clean. If Grok's engine expects the spread form, either it adapts to the contract or the host
+spreads — trivial either way, but it must match exactly or the callbacks silently never fire.
+
 ## Open questions for v1 → v2
 
 - **Glyphs:** v1 passes `kind` + state flags and lets the engine draw. If Zero's exact silhouettes matter,

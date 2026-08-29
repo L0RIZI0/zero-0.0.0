@@ -38,9 +38,22 @@
 /** Epoch milliseconds. Every time in this contract is absolute UTC ms — never a Date, never a string. */
 export type EpochMs = number
 
-/** The four Zero entity kinds a mark can represent. The engine uses this only to pick a glyph/shape;
- *  all behavioural meaning stays in Zero. */
-export type DaylineKind = "space" | "task" | "moment" | "instant"
+/** The entity kind a mark represents. The engine uses this ONLY to pick a glyph silhouette (see
+ *  `glyphs.ts`); all behavioural meaning stays in Zero. In practice the dayline is dominated by the
+ *  first four, but a tracked web `resource` really does appear on the recorded rail, and the remaining
+ *  kinds are included so the same engine can be reused for other Zero surfaces without a contract bump. */
+export type DaylineKind =
+  | "space"
+  | "task"
+  | "moment"
+  | "instant"
+  | "resource"
+  | "community"
+  | "organism"
+  | "entity"
+  | "individual"
+  | "soul"
+  | "link"
 
 /** Which rail a mark belongs to. `planned` = a scheduled occurrence; `recorded` = an actual tracked
  *  session; `access` = the machine-truth "where I was" band. The engine decides how to stack/lay these
