@@ -14,6 +14,7 @@ import {
 } from "@/lib/zero/activity-log"
 import { Zero0Face } from "@/components/zero0/zero0-face"
 import { Zero0Dayline, type DaylineOccRef } from "@/components/zero0/zero0-dayline"
+import { Zero0DaylineView } from "@/components/zero0/zero0-dayline-view"
 import { Zero0Calendar } from "@/components/zero0/zero0-calendar"
 import { MorphOverlay, captureCells, type MorphCell } from "@/components/zero0/zero0-morph-overlay"
 import { Zero0FrameMarker } from "@/components/zero0/zero0-frame-marker"
@@ -313,24 +314,22 @@ export function Zero0Agenda({
                 : undefined
             }
           >
-            <Zero0Dayline
+            {/* v0.2.348 — the CANVAS dayline (external engine behind @zero/dayline-contract) is now the
+                single main dayline. The legacy DOM linear/fisheye renderer (Zero0Dayline tracks="both")
+                is retired here; the engine owns its own axis, so `horizon`/`onToggleAxis` are gone. The
+                access tracker below still uses the legacy component. */}
+            <Zero0DaylineView
               onOpen={onOpen}
-              onContextMenuEntity={onContextMenuEntity}
               onOccurrenceMenu={onOccurrenceMenu}
               onSessionMenu={onSessionMenu}
               onOccurrenceRetime={onOccurrenceRetime}
               onSessionRetime={onSessionRetime}
               dataRev={dataRev}
-              tracks="both"
               minimized={minimized}
               hideBottomBorder={hideBottomBorder}
-              highlightId={highlightId}
-              onEmptyClick={startExpand}
-              horizon={horizon && !minimized}
               showAccessRail={showAccessRail}
               showSessionRail={showSessionRail}
               onToggleRail={setRailVisible}
-              onToggleAxis={setHorizon}
             />
             {/* v0.2.346 — the inline axis toggle used to live here. It moved INTO the band's right-click
                 menu (Axis → Linear/Fisheye) together with the new rail toggles: at `-bottom-4` it fell
