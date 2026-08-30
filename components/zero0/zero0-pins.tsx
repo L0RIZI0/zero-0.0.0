@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type React from "react"
+import { useGatedNow } from "@/lib/zero/use-gated-now"
 import { getInheritedAccent, getStarterPinnedEntities, getOwnOngoingEntities, getRecentlyMarkedInstants, getRecentlyEndedEntities } from "@/lib/zero/data"
  import { isOwnOngoing, getOpenSession, plannedStart, effectiveEndAt } from "@/lib/zero/kinds"
 import { getFaceModel } from "@/lib/zero/face-model"
@@ -209,12 +210,9 @@ export function Zero0Pins({
   /** Right-click a chip — open the unified entity menu. */
   onContextMenu: (entity: Entity, ev: React.MouseEvent) => void
 }) {
-  // A 1s tick driving both the live per-chip timer and re-scans across `now`.
-  const [nowTick, setNowTick] = useState(() => Date.now())
-  useEffect(() => {
-    const t = setInterval(() => setNowTick(Date.now()), TICK_MS)
-    return () => clearInterval(t)
-  }, [])
+  // A 1s tick driving both the live per-chip timer and re-scans across `now`. Gated so it pauses
+  // during a dayline pan/drag (avoids stealing a frame from the engine) and catches up on release.
+  const nowTick = useGatedNow(TICK_MS)
 
   // Split into the two lists. PINNED-idle (left) in pin order; ONGOING (right) with any
   // pinned-and-ongoing first (pin order), then unpinned ongoing.

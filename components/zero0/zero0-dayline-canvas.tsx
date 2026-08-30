@@ -20,6 +20,7 @@
 
 import { useEffect, useRef } from "react"
 import { mountDayline } from "@/lib/dayline"
+import { beginDaylineInteraction, endDaylineInteraction } from "@/lib/zero/tick-gate"
 import type {
   DaylineData,
   DaylineTheme,
@@ -78,8 +79,48 @@ export function Zero0DaylineCanvas({ data, theme, callbacks, options, className 
     const rect = canvas.getBoundingClientRect()
     handle.resize(rect.width, rect.height)
 
+    // ── PAN-STUTTER GATE ──
+    // Signal Zero's 1s tickers to stand down during an active pointer drag or wheel gesture on the
+    // canvas, so their synchronous re-render never steals a frame from the engine's rAF pan.
+    // Pointer: begin on down, end on up/cancel (down↔up brackets the whole drag).
+    // Wheel: momentum has no "end" event, so hold the gate open on a trailing debounce.
+    let pointerHeld = false
+    let wheelTimer: ReturnType<typeof setTimeout> | null = null
+    const onPointerDown = () => {
+      pointerHeld = true
+      beginDaylineInteraction()
+    }
+    const releasePointer = () => {
+      if (!pointerHeld) return
+      pointerHeld = false
+      endDaylineInteraction()
+    }
+    const onWheel = () => {
+      if (wheelTimer === null) beginDaylineInteraction()
+      else clearTimeout(wheelTimer)
+      wheelTimer = setTimeout(() => {
+        wheelTimer = null
+        endDaylineInteraction()
+      }, 180)
+    }
+    canvas.addEventListener("pointerdown", onPointerDown)
+    // Listen on window for up/cancel so a release outside the canvas still clears the gate.
+    window.addEventListener("pointerup", releasePointer)
+    window.addEventListener("pointercancel", releasePointer)
+    canvas.addEventListener("wheel", onWheel, { passive: true })
+
     return () => {
       ro.disconnect()
+      canvas.removeEventListener("pointerdown", onPointerDown)
+      window.removeEventListener("pointerup", releasePointer)
+      window.removeEventListener("pointercancel", releasePointer)
+      canvas.removeEventListener("wheel", onWheel)
+      // Balance the counter if we tore down mid-gesture, so depth never sticks above 0.
+      if (pointerHeld) endDaylineInteraction()
+      if (wheelTimer !== null) {
+        clearTimeout(wheelTimer)
+        endDaylineInteraction()
+      }
       handle.destroy()
       handleRef.current = null
     }

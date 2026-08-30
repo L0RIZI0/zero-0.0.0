@@ -20,6 +20,7 @@ import { MorphOverlay, captureCells, type MorphCell } from "@/components/zero0/z
 import { Zero0FrameMarker } from "@/components/zero0/zero0-frame-marker"
 import { useZero0Readout, toggleZero0Readout } from "@/lib/zero/zero0-chord"
 import { formatLocale } from "@/lib/zero/format-locale"
+import { useGatedNow } from "@/lib/zero/use-gated-now"
 import type { EntityKind } from "@/lib/zero/types"
 
 /** localStorage key for the persisted dayline view settings (axis mode + rail visibility), v0.2.346. */
@@ -523,11 +524,9 @@ function ActivityBody({
   // Structural changes here too (so a place switch refreshes immediately, not only on
   // the next whole-second tick).
   useActivityRevision()
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(id)
-  }, [])
+  // Gated 1s clock — pauses during a dayline pan/drag so its re-scan of the activity log doesn't
+  // steal a frame from the engine's rAF (the ~1s pan stutter). Catches up on release.
+  const now = useGatedNow(1000)
 
   // Feed `now` through so the OPEN segment's effective end tracks the live clock.
   const rollup: SpaceRollup[] = getDayRollup(now, now)

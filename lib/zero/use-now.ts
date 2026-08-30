@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react"
+import { isDaylineInteracting, onDaylineInteractionEnd } from "./tick-gate"
 
 // ============================================================================
 // Shared minute clock.
@@ -76,8 +77,14 @@ export function useNow(): number {
 let currentSec = 0
 const secListeners = new Set<() => void>()
 let secInterval: ReturnType<typeof setInterval> | null = null
+let secOffEnd: (() => void) | null = null
 
 function emitSec() {
+  // PAN-STUTTER GATE: while the user is panning/dragging the canvas dayline, hold this per-second
+  // store still. It fans out to the whole app (canvas, content, detail panel, calendar), so its 1s
+  // re-render is the single biggest main-thread spike that competes with the engine's rAF pan.
+  // On release, onDaylineInteractionEnd fires emitSec once so every subscriber catches up instantly.
+  if (isDaylineInteracting()) return
   currentSec = Date.now()
   for (const l of secListeners) l()
 }
@@ -88,12 +95,16 @@ function subscribeSec(cb: () => void) {
   if (wasEmpty) {
     currentSec = Date.now()
     secInterval = setInterval(emitSec, 1000)
+    // Catch up the instant a pan ends so counters never look frozen.
+    secOffEnd = onDaylineInteractionEnd(() => emitSec())
   }
   return () => {
     secListeners.delete(cb)
     if (secListeners.size === 0 && secInterval) {
       clearInterval(secInterval)
       secInterval = null
+      secOffEnd?.()
+      secOffEnd = null
     }
   }
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { getFrequentEntities, type FrequentGroup, type FrequentInstance } from "@/lib/zero/data"
+import { useGatedNow } from "@/lib/zero/use-gated-now"
 import { isSleepTitle, sleepDotColor } from "@/lib/zero/sleep-sky"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
 import { Zero0FrameMarker } from "@/components/zero0/zero0-frame-marker"
@@ -153,13 +154,9 @@ export function Zero0Frequent({
   // stacked directly above the block log form — no intermediate menu step.
   const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null)
   const menuGroup = menu ? groups.find((g) => g.key === menu.key) : undefined
-  const [nowTick, setNowTick] = useState(() => Date.now())
-  useEffect(() => {
-    if (!menu && !anyOngoing) return
-    setNowTick(Date.now())
-    const t = setInterval(() => setNowTick(Date.now()), 1000)
-    return () => clearInterval(t)
-  }, [menu, anyOngoing])
+  // Gated 1s tick (pauses during a dayline pan). Only runs when the menu is open or something is
+  // ongoing — same condition as before, now expressed through the shared gated clock.
+  const nowTick = useGatedNow(1000, !!menu || anyOngoing)
 
   return (
     <section className="relative flex flex-col border-b border-border px-4 py-3 text-[11px] text-muted-foreground">
