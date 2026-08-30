@@ -45,6 +45,14 @@ const DAY = 86_400_000
 const GATHER_PAST = 45 * DAY
 const GATHER_FUTURE = 400 * DAY
 
+// Dayline band height (px), drag-resizable from the bottom edge and persisted per uzer. The engine
+// re-lays-out to whatever height its canvas gets (ResizeObserver → handle.resize), so a taller band
+// simply shows more of the sun arc + rails.
+const HEIGHT_KEY = "zero0.dayline.height"
+const MIN_H = 72
+const MAX_H = 420
+const DEFAULT_H = 96
+
 export interface Zero0DaylineViewProps {
   onOpen: (entityId: string) => void
   // The agenda's menu handlers take a (synthetic) mouse event and read clientX/clientY off it — matching
@@ -79,12 +87,9 @@ export function Zero0DaylineView({
   showSessionRail,
   onToggleRail,
 }: Zero0DaylineViewProps) {
-  // 1s clock — enough for the now-marker; the engine runs its own rAF for smooth motion.
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(id)
-  }, [])
+  // NOTE: no React clock tick. The engine advances its own now-marker (wall clock, see mount.ts), so a
+  // per-second rebuild here is both unnecessary and harmful — it called handle.update() every second,
+  // and the engine's loadData() rebuilds all events, wiping any in-progress drag (the snap-back bug).
 
   // Theme resolved from Zero's CSS vars. Re-read when the color scheme flips.
   const [theme, setTheme] = useState<DaylineTheme>({})
@@ -96,18 +101,57 @@ export function Zero0DaylineView({
     return () => mo.disconnect()
   }, [])
 
-  // Snapshot rebuilt on clock tick, model change, or rail-visibility change.
+  // Snapshot rebuilt ONLY on model change (dataRev) or rail toggle — never on a clock tick. Because the
+  // model is stable during a drag, no update() fires mid-drag, so the engine keeps the dragged chip; on
+  // drop, the retime persists, dataRev bumps once, and a single update() reflects the new time.
   const data = useMemo(() => {
     const anchor = Date.now()
     return buildDaylineInput({
       lo: anchor - GATHER_PAST,
       hi: anchor + GATHER_FUTURE,
-      now,
+      now: anchor,
       rails: { planned: true, recorded: !!showSessionRail, access: !!showAccessRail },
     })
-    // `now` at 1s granularity is intentional; dataRev catches model edits between ticks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [now, dataRev, showSessionRail, showAccessRail])
+  }, [dataRev, showSessionRail, showAccessRail])
+
+  // Drag-resizable band height, read lazily from localStorage so it's correct on first paint.
+  const [height, setHeight] = useState<number>(() => {
+    if (typeof window === "undefined") return DEFAULT_H
+    const raw = Number(window.localStorage.getItem(HEIGHT_KEY))
+    return Number.isFinite(raw) && raw >= MIN_H && raw <= MAX_H ? raw : DEFAULT_H
+  })
+  // `pendingH` tracks the live drag value in a ref so persistence at pointerup never reads a stale
+  // committed height (React may not have flushed the last setHeight yet on a fast drag).
+  const pendingHRef = useRef(height)
+  const resizeRef = useRef<{ startY: number; startH: number } | null>(null)
+  const onResizeDown = (e: React.PointerEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    resizeRef.current = { startY: e.clientY, startH: pendingHRef.current }
+    try {
+      ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    } catch {
+      /* no active pointer (synthetic) — capture is optional, the drag still tracks via move */
+    }
+  }
+  const onResizeMove = (e: React.PointerEvent) => {
+    const r = resizeRef.current
+    if (!r) return
+    const next = Math.max(MIN_H, Math.min(MAX_H, r.startH + (e.clientY - r.startY)))
+    pendingHRef.current = next
+    setHeight(next)
+  }
+  const onResizeUp = () => {
+    if (!resizeRef.current) return
+    resizeRef.current = null
+    try {
+      window.localStorage.setItem(HEIGHT_KEY, String(pendingHRef.current))
+    } catch {
+      /* private-mode Safari — keep the in-memory value */
+    }
+  }
+  const bandH = minimized ? 40 : height
 
   // Band right-click menu (rail visibility). The axis toggle is gone — the engine owns its axis.
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -129,8 +173,14 @@ export function Zero0DaylineView({
   )
 
   return (
-    <div className={hideBottomBorder ? "relative" : "relative border-b border-border"}>
-      <div style={{ height: minimized ? 40 : 96 }}>
+    <div
+      className={hideBottomBorder ? "relative" : "relative border-b border-border"}
+      // Stop a right-click inside the dayline from bubbling to the agenda <section>'s onContextMenu
+      // ("Minimize the frame"). The engine already handled it via its own native listener (firing the
+      // occurrence / session / band menu) — this just prevents the frame menu from racing it.
+      onContextMenu={(e) => e.stopPropagation()}
+    >
+      <div style={{ height: bandH }}>
         <Zero0DaylineCanvas
           data={data}
           theme={theme}
@@ -139,6 +189,18 @@ export function Zero0DaylineView({
           className="h-full w-full"
         />
       </div>
+      {!minimized && (
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize dayline height"
+          title="Drag to resize"
+          onPointerDown={onResizeDown}
+          onPointerMove={onResizeMove}
+          onPointerUp={onResizeUp}
+          className="absolute inset-x-0 bottom-0 z-10 h-1.5 cursor-ns-resize hover:bg-accent/40"
+        />
+      )}
 
       {menu && (
         <BandMenu

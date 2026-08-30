@@ -15,7 +15,12 @@ export const mountDayline: MountDayline = (args: MountDaylineArgs): DaylineHandl
     { onChange: () => {} },
     {
       persist: false,
-      clock: "data",
+      // WALL clock (v0.2.349): the engine self-advances its own now-marker on its rAF
+      // (engine.frame, clockMode !== "data") and grows open-ended bars live. Zero's `now` IS wall-clock,
+      // so this is equivalent — and it means Zero never has to push `now` every second. That per-second
+      // push rebuilt the whole marks array and called loadData(), which clobbers any in-progress drag
+      // (loadData unconditionally replaces this.events) — the cause of drag snap-back.
+      clock: "wall",
       data: args.data,
       theme: args.theme,
       callbacks: args.callbacks,
