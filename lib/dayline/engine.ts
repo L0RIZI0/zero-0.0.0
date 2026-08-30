@@ -1330,6 +1330,17 @@ export class DaylineEngine {
 		}
 		if ((this.mode === "resize-start" || this.mode === "resize-end") && this.dragId) {
 			if (!this.dragOrigin.find((ev: CalEvent) => ev.id === this.dragId)) return;
+			// ZERO PATCH (v0.2.351): mirror the drag-event branch — mark `moved` + push undo on the first
+			// real movement. Without this, `this.moved` stayed false through a resize, so onUp's
+			// `if (this.moved)` gate skipped commitSnap/persist/emitRetime entirely: the edge visually moved
+			// but the new time was never emitted to Zero, so the chip snapped back on the next update().
+			// REPORT UPSTREAM to Grok — this belongs in the engine, and a fresh re-vendor will drop it.
+			if (Math.abs(x - this.lastX) > 2 && !this.moved) {
+				this.undo.push(JSON.stringify(this.dragOrigin));
+				if (this.undo.length > 40) this.undo.shift();
+				this.redo.length = 0;
+				this.moved = true;
+			}
 			const t = this.softSnap(this.xToTime(x));
 			this.events = this.dragOrigin.map((ev: CalEvent) => {
 				if (ev.id !== this.dragId) return ev;
