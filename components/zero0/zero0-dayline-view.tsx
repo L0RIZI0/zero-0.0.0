@@ -102,9 +102,14 @@ export function Zero0DaylineView({
     return () => mo.disconnect()
   }, [])
 
-  // Snapshot rebuilt ONLY on model change (dataRev) or rail toggle — never on a clock tick. Because the
-  // model is stable during a drag, no update() fires mid-drag, so the engine keeps the dragged chip; on
-  // drop, the retime persists, dataRev bumps once, and a single update() reflects the new time.
+  // The access rail is fed by the activity log, which mutates on navigation WITHOUT bumping `dataRev`
+  // (that tracks the schedule/occurrence model). Subscribe to the activity revision so the access rail
+  // reflects focus moves live. It's cheap; it only meaningfully changes output while access is on.
+  const activityRev = useActivityRevision()
+
+  // Snapshot rebuilt ONLY on model change (dataRev), activity change (access rail), or rail toggle —
+  // never on a clock tick. Because the model is stable during a drag, no update() fires mid-drag, so the
+  // engine keeps the dragged chip; on drop, the retime persists and a single update() reflects it.
   const data = useMemo(() => {
     const anchor = Date.now()
     return buildDaylineInput({
@@ -113,8 +118,9 @@ export function Zero0DaylineView({
       now: anchor,
       rails: { planned: true, recorded: !!showSessionRail, access: !!showAccessRail },
     })
+    // `accessRev` only forces a rebuild while access is on (0 otherwise, so it's inert when off).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataRev, showSessionRail, showAccessRail])
+  }, [dataRev, showSessionRail, showAccessRail, showAccessRail ? activityRev : 0])
 
   // Drag-resizable band height, read lazily from localStorage so it's correct on first paint.
   const [height, setHeight] = useState<number>(() => {
