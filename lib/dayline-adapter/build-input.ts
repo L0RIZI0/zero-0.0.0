@@ -14,7 +14,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { DaylineData, DaylineMark, DaylineKind, DaylineGlyph } from "@/packages/dayline-contract"
-import { getCalendarBars, type CalBar } from "@/lib/zero/dayline-bars"
+import { getCalendarBars, getAccessBars, type CalBar } from "@/lib/zero/dayline-bars"
 import { getEntity } from "@/lib/zero/data"
 import { getFaceModel } from "@/lib/zero/face-model"
 
@@ -105,6 +105,7 @@ export interface BuildInputArgs {
  */
 export function buildDaylineInput({ lo, hi, now = Date.now(), rails }: BuildInputArgs): DaylineData {
   const showRecorded = rails?.recorded ?? false
+  const showAccess = rails?.access ?? false
   const { planned, recorded } = getCalendarBars(lo, hi, now)
 
   const marks: DaylineMark[] = []
@@ -117,10 +118,17 @@ export function buildDaylineInput({ lo, hi, now = Date.now(), rails }: BuildInpu
       marks.push(toMark(bar))
     }
   }
+  // ACCESS rail (v0.2.352): the machine-truth focus record, from the activity log — a DIFFERENT source
+  // than occurrences/sessions. This is what was missing: the adapter only tapped getCalendarBars, so
+  // access marks (incl. the current open focus, e.g. the v0 resource you're viewing) never reached the
+  // engine even though it renders them and the toggle was on. Gather only when the rail is on.
+  if (showAccess) {
+    for (const bar of getAccessBars(lo, hi, now)) marks.push(toMark(bar))
+  }
 
   return {
     now,
     marks,
-    rails: { planned: rails?.planned ?? true, recorded: showRecorded, access: rails?.access ?? false },
+    rails: { planned: rails?.planned ?? true, recorded: showRecorded, access: showAccess },
   }
 }

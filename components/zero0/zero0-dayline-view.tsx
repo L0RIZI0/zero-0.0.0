@@ -22,6 +22,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Zero0DaylineCanvas, readDaylineTheme } from "./zero0-dayline-canvas"
 import { buildDaylineInput } from "@/lib/dayline-adapter/build-input"
+import { useActivityRevision } from "@/lib/zero/activity-log"
 import type { DaylineTheme } from "@/packages/dayline-contract"
 
 // The occurrence dispatch token is opaque at this seam (contract `OccRef = unknown`) — Zero only ever

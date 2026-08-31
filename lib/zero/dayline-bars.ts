@@ -21,6 +21,7 @@ import { rangeText, fmtTime } from "./timeline-format"
 import { titleAt } from "./entity-log"
 import { webLabel } from "./web-resources"
 import { isSleepTitle, sleepSkyBackground } from "./sleep-sky"
+import { getSegments } from "./activity-log"
 
 const DAY_MS = 86_400_000
 /** Neutral fill for an entity with no own/inherited accent. Mirrors the dayline's `NEUTRAL`. */
@@ -43,7 +44,10 @@ export interface CalBar {
   startMs?: number
   /** Absolute epoch of the tick's effective end (declared/implied/close/now). */
   endMs: number
-  track: "planned" | "recorded"
+  /** `access` = the machine-truth "where I was" focus record (from the activity log), produced ONLY by
+   *  {@link getAccessBars} for the dayline's access rail — never by getCalendarBars (the calendar omits
+   *  it). Kept in the same union so the dayline adapter maps every bar through one code path. */
+  track: "planned" | "recorded" | "access"
   point: boolean
   instant?: boolean
   ongoing?: boolean
@@ -203,6 +207,46 @@ export function getCalendarBars(lo: number, hi: number, now: number = Date.now()
   }
 
   return { planned, recorded }
+}
+
+/**
+ * ACCESS bars — the machine-truth "where I was" focus record, one per raw {@link AccessSegment} that
+ * overlaps `[lo, hi]`. Mirror of the legacy dayline's `access` memo (zero0-dayline.tsx), minus the
+ * pct-geometry: the canvas engine owns layout, so this returns absolute-time bars only. Sourced from
+ * the activity log (`getSegments`), NOT from occurrences/sessions — this is the data the dayline
+ * adapter was missing, which is why the access rail (and the current open focus) rendered nothing.
+ *
+ * Separate from {@link getCalendarBars} on purpose: the calendar never shows access, so it must not
+ * pay for (or receive) these bars. The open segment (`leftAt == null`) is the current focus; its end
+ * is `now` and it carries `openEnded`/`unknownEnd` so the engine can fade its trailing edge.
+ */
+export function getAccessBars(lo: number, hi: number, now: number): CalBar[] {
+  const out: CalBar[] = []
+  const segs = getSegments()
+  for (const s of segs) {
+    const st = s.enteredAt
+    const en = s.leftAt ?? now
+    if (en <= st) continue // zero/negative width
+    if (en < lo || st > hi) continue // outside the window
+    const open = s.leftAt == null
+    const entity = getEntity(s.entityId)
+    const { fill, stroke } = paintFor(s.entityId)
+    out.push({
+      key: `access:${s.entityId}:${s.enteredAt}`,
+      id: s.entityId,
+      title: entity ? barLabel(entity, st) : s.entityId === ROOT_ID ? "Home" : "Elsewhere",
+      color: fill,
+      stroke,
+      startMs: st,
+      endMs: en,
+      track: "access",
+      point: false,
+      openEnded: open,
+      unknownEnd: open,
+      range: `${rangeText(st, en)} · access${open ? " · ongoing" : ""}`,
+    })
+  }
+  return out
 }
 
 export { DAY_MS as CAL_DAY_MS }
