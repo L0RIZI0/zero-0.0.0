@@ -4052,6 +4052,45 @@ export function addWebResource(input: {
   return true
   }
 
+/**
+ * DESCRIPTION setter (mainly spaces) — kind-agnostic. Empty string CLEARS the slot (back to
+ * undefined). Idempotent: a no-op when the trimmed text already matches. Mirrors {@link setWebTitle}'s
+ * seeded-override dual-write. Added for the markdown projection (v0.2.354), which treats an entity's
+ * content file as authoritative for this field.
+ */
+export function setEntityDescription(id: string, description: string): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  const next = description.trim()
+  const cur = stored.description ?? ""
+  if (next === cur) return false
+  mutable(stored).description = next || undefined
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), description: next || undefined })
+  }
+  persist()
+  return true
+}
+
+/**
+ * WEB-URL setter (kind-agnostic web surface). Empty string CLEARS the binding. Idempotent. Only the
+ * raw `webUrl` is touched here — `webResourceId`/`displayTitle` are left as-is (a hand-edited URL keeps
+ * any resolved label until re-resolved). Added for the markdown projection (v0.2.354).
+ */
+export function setEntityWebUrl(id: string, url: string): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  const next = url.trim()
+  const cur = stored.webUrl ?? ""
+  if (next === cur) return false
+  mutable(stored).webUrl = next || undefined
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), webUrl: next || undefined })
+  }
+  persist()
+  return true
+}
+
   export function addSpace(input: { name: string; parentId: string }): Entity {
   const entity: Entity = {
     id: uid("s"),

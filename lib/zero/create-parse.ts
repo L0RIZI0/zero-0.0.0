@@ -162,8 +162,10 @@ export function parseRepeatToken(value: string): Recurrence | null {
   }
 }
 
-/** Short human label for a recurrence rule, for the create-field confirmation summary. */
-function repeatLabel(r: Recurrence): string {
+/** Short human label for a recurrence rule, for the create-field confirmation summary. Also the
+ *  INVERSE of {@link parseRepeatToken} used by the markdown projection to serialize `--repeat`
+ *  (its output — daily/weekly/monthly/yearly/weekdays/weekends — round-trips back through the parser). */
+export function repeatLabel(r: Recurrence): string {
   if (r.freq === "weekly" && r.byWeekday) {
     const wd = r.byWeekday
     if (wd.length === 5 && wd.every((d) => d >= 1 && d <= 5)) return "weekdays"
