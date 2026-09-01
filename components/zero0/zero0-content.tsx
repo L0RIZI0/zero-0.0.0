@@ -16,6 +16,7 @@ import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
 import { motion } from "motion/react"
 import { getChildren, getEntity } from "@/lib/zero/data"
   import { isClosed, entityHiddenState } from "@/lib/zero/kinds"
+import { serializeEntityToMarkdown } from "@/lib/zero/entity-markdown"
 import { Zero0Face } from "./zero0-face"
 import { Zero0Glyph } from "./zero0-glyph"
 import type { FaceSize, FaceMake } from "@/lib/zero/face-model"
@@ -78,6 +79,9 @@ export interface Zero0ContentCtx {
   toggleExpand: (id: string) => void
   /** Create a child under `contextId` from a raw create-field line (full grammar). */
   createChild: (contextId: string, raw: string) => void
+  /** Reconcile `contextId`'s children from an edited markdown "code view" (zoom-out commit),
+      then re-render. See lib/zero/entity-markdown.ts. */
+  applyMarkdown: (contextId: string, text: string) => void
   /** Persist a drag-and-drop sibling order for `contextId` (full visible order). */
   reorder: (contextId: string, orderedIds: string[]) => void
   /** Move an entity INTO another context (nest it as a child). Returns false (no-op) on
@@ -326,7 +330,91 @@ function ContentDragRoot(props: Zero0ContentProps) {
 
   const activeEntity = activeId ? getEntity(activeId) ?? null : null
 
+  // ── ZOOM: markdown "code view" of this entity's content (v0.2.353) ──────────────────
+  // The entity's content IS a markdown file; the rows list is a projection of it. Pinch-IN
+  // (ctrl+wheel, deltaY<0) reveals that file for inline editing; pinch-OUT re-parses it back
+  // to rows. See lib/zero/entity-markdown.ts. Only at depth 0 (this component is depth-0 only).
+  const [codeView, setCodeView] = useState(false)
+  const [draft, setDraft] = useState("")
+  // Refs so the NON-passive native wheel listener (bound once) always reads latest state.
+  const codeViewRef = useRef(false)
+  const draftRef = useRef("")
+  const zoomAccumRef = useRef(0)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  codeViewRef.current = codeView
+  draftRef.current = draft
+
+  // Reset to the rows view whenever we navigate to a different entity.
+  useEffect(() => {
+    setCodeView(false)
+    zoomAccumRef.current = 0
+  }, [entity.id])
+
+  // Commit the edited file back into the children graph (rename/recolor/create; never deletes
+  // in v1). Idempotent — positional reconcile means re-applying the same text is a no-op — so
+  // it's safe to call from BOTH blur and zoom-out.
+  const commitDraft = () => ctx.applyMarkdown(entity.id, draftRef.current)
+
+  const enterCodeView = () => {
+    setDraft(serializeEntityToMarkdown(entity.id))
+    setCodeView(true)
+  }
+  const exitCodeView = () => {
+    commitDraft()
+    setCodeView(false)
+  }
+
+  // ctrl+wheel (= trackpad pinch) flips ONE zoom level, with an accumulator + hysteresis so a
+  // single gesture doesn't oscillate. Bound natively as { passive:false } so preventDefault
+  // actually blocks the browser's page-zoom.
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const THRESH = 45
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return // plain scroll passes through untouched
+      e.preventDefault()
+      e.stopPropagation()
+      // Reset the accumulator when the gesture reverses direction.
+      if (Math.sign(zoomAccumRef.current) !== Math.sign(e.deltaY)) zoomAccumRef.current = 0
+      zoomAccumRef.current += e.deltaY
+      if (zoomAccumRef.current <= -THRESH && !codeViewRef.current) {
+        enterCodeView()
+        zoomAccumRef.current = 0
+      } else if (zoomAccumRef.current >= THRESH && codeViewRef.current) {
+        exitCodeView()
+        zoomAccumRef.current = 0
+      }
+    }
+    el.addEventListener("wheel", onWheel, { passive: false })
+    return () => el.removeEventListener("wheel", onWheel)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handler reads latest via refs
+  }, [entity.id])
+
+  if (codeView) {
+    const lineCount = draft.split("\n").length
+    return (
+      <div ref={wrapRef}>
+        <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground/70">
+          <span>markdown</span>
+          <span aria-hidden>pinch out to close</span>
+        </div>
+        <textarea
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitDraft}
+          spellCheck={false}
+          rows={Math.max(3, lineCount + 1)}
+          aria-label={`Markdown source for ${entity.title}`}
+          className="w-full resize-none rounded-sm border border-border bg-card/40 p-2 font-mono text-[11px] leading-relaxed text-foreground caret-foreground outline-none focus:border-border"
+        />
+      </div>
+    )
+  }
+
   return (
+    <div ref={wrapRef}>
     <ContentDragContext.Provider value={{ dropIntent }}>
       <DndContext
         sensors={sensors}
@@ -377,6 +465,7 @@ function ContentDragRoot(props: Zero0ContentProps) {
         </DragOverlay>
       </DndContext>
     </ContentDragContext.Provider>
+    </div>
   )
 }
 

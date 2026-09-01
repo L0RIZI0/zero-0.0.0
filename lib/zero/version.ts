@@ -15,4 +15,4 @@
 // inflation is what pushed us toward v1 before). A DELIBERATE milestone bump is welcome —
 // e.g. Loris plans v0.3.0 once dayline ticks + entity-state display land. When that happens,
 // continue flat from there (v0.3.1, v0.3.2, …).
-export const ZERO_VERSION = "v0.2.352"
+export const ZERO_VERSION = "v0.2.353"

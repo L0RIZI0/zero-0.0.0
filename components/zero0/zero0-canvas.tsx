@@ -89,6 +89,7 @@ import {
   parseRepeatToken,
   type EntryAttr,
 } from "@/lib/zero/create-parse"
+import { applyMarkdownToChildren } from "@/lib/zero/entity-markdown"
 import { cropTitle, looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webLabel } from "@/lib/zero/web-resources"
 import { useZero0Flag, toggleZero0Flag } from "@/lib/zero/zero0-chord"
 import { useZeroCrossWindowSync } from "@/lib/zero/use-zero-sync"
@@ -2026,6 +2027,16 @@ export function Zero0Canvas() {
     [bump],
   )
 
+  // Zoom-out commit of an entity's markdown "code view" → reconcile children (rename/recolor/
+  // create; never deletes in v1), then re-render so the rows reflect the edited file.
+  const applyMarkdown = useCallback(
+    (targetContextId: string, text: string) => {
+      applyMarkdownToChildren(targetContextId, text)
+      bump()
+    },
+    [bump],
+  )
+
   // Drop-INTO-nest: move an entity so it becomes a child of another (drag a row onto the
   // middle of another row). No-op on self/cycle (guarded in moveEntityToContext).
   const reparent = useCallback(
@@ -2054,10 +2065,11 @@ export function Zero0Canvas() {
       expandedIds,
       toggleExpand,
       createChild,
+      applyMarkdown,
       reorder,
       reparent,
     }),
-    [toggleDone, togglePlay, mark, openEntity, remove, openMenu, sizeOf, makeOf, showHidden, nowSec, rev, expandedIds, toggleExpand, createChild, reorder, reparent],
+    [toggleDone, togglePlay, mark, openEntity, remove, openMenu, sizeOf, makeOf, showHidden, nowSec, rev, expandedIds, toggleExpand, createChild, applyMarkdown, reorder, reparent],
   )
 
   // (The top-level Content's ancestry Set is now built PER-LEVEL at the render site — each
@@ -2536,7 +2548,7 @@ export function Zero0Canvas() {
         </Zero0Frame>
       )}
 
-      {/* ── ZERO HEADER (§1) ─────────������────────────���───��───────────────────────
+      {/* ── ZERO HEADER (§1) ─────────������────────────���───��─────���─────────────────
           Zero-UX chrome: the mark, the access path (breadcrumb), and a session
           readout. Not part of the node's own data. Toggled by §1 / the corner marker,
           and — like every frame in the stack — collapses with the dep-free grid-rows
@@ -2629,7 +2641,7 @@ export function Zero0Canvas() {
       </header>
       </Zero0Frame>
 
-      {/* ── ENTITY CONTENT ────────────────────────────────────────────────��────
+      {/* ── ENTITY CONTENT ────────────────────────────────────────────────���────
           The open node as raw data: META, then CHILDREN. Recursive — the root
           Individual renders exactly like any other entity. `min-h-0` lets this flex
           child shrink below its content so ONLY this band scrolls — the header,

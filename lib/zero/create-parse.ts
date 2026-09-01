@@ -191,6 +191,25 @@ const KIND_PREFIX: Record<string, EntityKind> = {
 }
 
 /**
+ * REVERSE of {@link KIND_PREFIX}: kind → its canonical 4-letter code. Built by inverting the
+ * table so the two never drift. Drives the ENTITY-CONTENT markdown projection
+ * (`entity-markdown.ts`), where every child is serialized as `<prefix>: <title>`. `soul` has no
+ * prefix (never a browsable child); it falls back to its own first 4 letters, which is harmless.
+ */
+const PREFIX_BY_KIND = Object.fromEntries(Object.entries(KIND_PREFIX).map(([p, k]) => [k, p])) as Record<
+  EntityKind,
+  string
+>
+export function kindToPrefix(kind: EntityKind): string {
+  return PREFIX_BY_KIND[kind] ?? kind.slice(0, 4)
+}
+
+/** Public read-only view of the prefix→kind table for the markdown line-parser. */
+export function kindForPrefix(prefix: string): EntityKind | null {
+  return KIND_PREFIX[prefix.trim().toLowerCase().slice(0, 4)] ?? null
+}
+
+/**
  * Resolve a typed kind NAME to a creatable {@link EntityKind}, accepting either the full
  * name or (at least) its first 4 letters — the same keys as the `:xxxx` create selector.
  * Case-insensitive. Examples: "space"/"Space"/"spac" → "space", "organism"/"orga" →
