@@ -12,8 +12,9 @@ namespace Zero.ShellHost;
 // Zero's own UI (the Next static export) from the virtual host https://zero.local/. All renderer↔host
 // traffic goes through the `window.zero` shim injected at document-created time; messages arrive here
 // via WebMessageReceived and are dispatched below. The window keeps native frame styles (Sizable) for
-// resize/snap/animations but hides the title bar via WM_NCCALCSIZE (see WndProc), so it LOOKS frameless
-// while the OS still handles move (HTCAPTION drag), resize (all edges), and min/max/close animations.
+// resize/snap/animations but hides the title bar AND the top border line via WM_NCCALCSIZE (see WndProc),
+// so it LOOKS frameless while the OS still handles move (HTCAPTION drag), resize (sides/bottom/corners),
+// and min/max/close animations.
 // ---------------------------------------------------------------------------
 sealed class MainForm : Form
 {
@@ -201,8 +202,8 @@ sealed class MainForm : Form
     protected override void WndProc(ref Message m)
     {
         // WM_NCCALCSIZE (wParam=TRUE) decides how much of the window is client vs. non-client frame.
-        // We keep the native sizing borders (so the OS handles resize on every edge + Aero snap) but
-        // reclaim the CAPTION strip into the client, so no title bar is drawn → frameless look.
+        // We keep the native sizing borders on the sides/bottom (so the OS handles resize + Aero snap)
+        // but reclaim the ENTIRE top inset into the client, so no title bar AND no top border line show.
         if (m.Msg == NativeMethods.WM_NCCALCSIZE && m.WParam != nint.Zero)
         {
             if (_fullscreen)
@@ -213,12 +214,22 @@ sealed class MainForm : Form
                 return;
             }
 
+            // The proposed WINDOW rect top, captured BEFORE the default proc turns rgrc[0] into a client
+            // rect. We restore the client top to exactly this, so the client spans to the window's top
+            // edge — reclaiming both the caption AND the top sizing-border. That top border is what DWM
+            // was painting as the thin white line; removing the inset removes the line. (Subtracting only
+            // SM_CYCAPTION left that ~1px top frame behind, hence the artifact.)
+            int windowTop =
+                System.Runtime.InteropServices.Marshal.PtrToStructure<NativeMethods.RECT>(m.LParam).top;
+
             // Let the default proc reserve the standard frame (sizing borders + caption)…
             base.WndProc(ref m);
-            // …then give the caption height back to the client. The sizing borders stay non-client,
-            // so all four edges/corners remain natively resizable; only the title bar is gone.
+
+            // …then hand the whole top inset back to the client. Left/right/bottom insets are left as the
+            // default proc set them, so those edges + all corners stay natively resizable. (Only the very
+            // top edge loses its resize grip — an accepted trade for a clean borderless top.)
             var rc = System.Runtime.InteropServices.Marshal.PtrToStructure<NativeMethods.RECT>(m.LParam);
-            rc.top -= NativeMethods.GetSystemMetrics(NativeMethods.SM_CYCAPTION);
+            rc.top = windowTop;
             System.Runtime.InteropServices.Marshal.StructureToPtr(rc, m.LParam, false);
             m.Result = nint.Zero;
             return;
