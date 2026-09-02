@@ -2477,7 +2477,10 @@ export function Zero0Canvas() {
           `justify-between` keeps the live clock left and the min/max/close cluster top-right. */}
       <div
         className="flex min-h-[41px] shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3 text-[10px] font-medium uppercase tracking-wider leading-none tabular-nums text-foreground"
+        // `WebkitAppRegion` drives the Electron shell's frameless drag; `data-zero-drag` is the
+        // additive marker the WebView2 shell-host reads (WebView2 doesn't honor -webkit-app-region).
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+        data-zero-drag="drag"
       >
         <span>{topClock}</span>
         <Zero0WindowControls />

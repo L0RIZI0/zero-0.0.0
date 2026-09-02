@@ -38,7 +38,10 @@ export function Zero0WindowControls() {
   return (
     <div
       className="flex items-center gap-1"
+      // `no-drag` opts these buttons out of the frameless drag in BOTH shells: `WebkitAppRegion`
+      // for Electron, `data-zero-drag` for the WebView2 shell-host.
       style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+      data-zero-drag="no-drag"
       aria-label="Window controls"
     >
       <CtrlButton

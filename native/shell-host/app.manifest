@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0" xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
+  <assemblyIdentity version="1.0.0.0" name="Zero.ShellHost"/>
+
+  <!--
+    Per-Monitor-V2 DPI awareness. WebView2 handles its own DPI scaling correctly ONLY when the host
+    process is PMv2 — otherwise a drag to a monitor with a different scale factor blurs the shell and
+    (from M2) mis-sizes content. PMv2 is exactly what lets the DPI class of seam bugs from the
+    Electron+resource-host era stay dead once content moves in-process.
+  -->
+  <asmv3:application>
+    <asmv3:windowsSettings>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+    </asmv3:windowsSettings>
+  </asmv3:application>
+
+  <!-- Modern common-controls + supported-OS (Win10/11) so WebView2 + WinForms behave as expected. -->
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+    </application>
+  </compatibility>
+</assembly>
