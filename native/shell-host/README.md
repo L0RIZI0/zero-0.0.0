@@ -24,7 +24,9 @@ From the repo root:
 
 ```powershell
 # 1) Produce the static export the shell serves (out/index.html …).
-pnpm build            # next build with output:'export' → out/
+#    NOTE: plain `pnpm build` does NOT emit out/ — the static export only happens under
+#    BUILD_TARGET=electron, which also stashes the server-only app/api routes. Use this script:
+pnpm shell:export     # → out/
 
 # 2) Run the shell-host. It auto-finds ../../out by walking up from bin/.
 cd native/shell-host

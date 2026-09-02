@@ -14,6 +14,7 @@
     "electron": "electron .",
     "electron:dev": "concurrently -k -n NEXT,ELECTRON -c blue,magenta \"cross-env CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true next dev\" \"wait-on tcp:3000 && electronmon .\"",
     "build:resource-host": "node scripts/build-resource-host.mjs",
+    "shell:export": "node scripts/gen-interaction-matrix.mjs && node scripts/electron-build.mjs",
     "electron:build": "node scripts/gen-interaction-matrix.mjs && node scripts/electron-build.mjs && node scripts/build-resource-host.mjs && electron-builder",
     "electron:build:ci": "node scripts/gen-interaction-matrix.mjs && node scripts/electron-build.mjs && node scripts/build-resource-host.mjs && electron-builder --win nsis --publish never",
     "release:upload": "node scripts/upload-release.mjs"
