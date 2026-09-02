@@ -9,9 +9,10 @@
 //   • host→renderer evt → {kind:'event', channel, payload}  (maximize/fullscreen; resource/* from M2)
 //
 // M1 implements the CHEAP, no-content half: win.*, openExternal, locale, appVersion,
-// system.getIdleSeconds, webTitle, debugLog(+Path). resource.*/menu.*/updates.* are exposed as SAFE
-// stubs (resolved promises / no-op subscriptions) so the renderer feature-detects and runs until M2–M4
-// fill them in.
+// system.getIdleSeconds, webTitle, debugLog(+Path). M2.2 wires resource.* to the in-process composition
+// content host (mount/setBounds/park/close/theme + status/navigated/activity events). menu.*/updates.*
+// remain SAFE stubs (resolved promises / no-op subscriptions) so the renderer feature-detects until
+// M3–M4 fill them in.
 // ---------------------------------------------------------------------------
 ;(() => {
   // Synchronous constants baked in by the host (matches the preload's sendSync reads).
@@ -90,22 +91,24 @@
       onFullScreenChange: (cb) => on("win.fullscreen", (v) => cb(!!v)),
     },
 
-    // ── M2 anchor: native resource host. Safe stubs until content moves in-process. ──
+    // ── M2.2: browsed content, in-process on composition layers (see ResourceHost.cs). ──
     resource: {
-      mount: () => Promise.resolve({ ok: false, stub: true }),
-      setBounds: () => {},
-      park: () => {},
-      close: () => {},
-      unmount: () => {},
-      prewarm: () => Promise.resolve({ ok: false, stub: true }),
-      discardPrewarm: () => {},
-      releaseFocus: () => {},
-      setTheme: () => {},
-      onOutput: () => () => {},
-      onStatus: () => () => {},
-      onNavigated: () => () => {},
-      onContextMenu: () => () => {},
-      onActivity: () => () => {},
+      mount: (args) => invoke("resource.mount", args),
+      setBounds: (args) => send("resource.set-bounds", args),
+      park: (id) => send("resource.park", id),
+      close: (id) => send("resource.close", id),
+      unmount: (id) => send("resource.unmount", id),
+      // Warm pre-warm is M2.3; the host resolves false so the renderer takes the normal cold mount path.
+      prewarm: (args) => invoke("resource.prewarm", args),
+      discardPrewarm: (id) => send("resource.discard-prewarm", id),
+      releaseFocus: () => send("resource.release-focus"),
+      setTheme: (mode) => send("resource.set-theme", mode),
+      // Downloads→outputs and the context-menu relay are M2.3 (the host doesn't emit these yet).
+      onOutput: (cb) => on("resource.output", cb),
+      onStatus: (cb) => on("resource.status", cb),
+      onNavigated: (cb) => on("resource.navigated", cb),
+      onContextMenu: (cb) => on("resource.contextmenu", cb),
+      onActivity: (cb) => on("resource.activity", cb),
     },
 
     // ── M3 anchor: native menu over web content. Stub until content + overlay land. ──

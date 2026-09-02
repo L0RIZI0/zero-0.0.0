@@ -28,6 +28,15 @@ sealed class MainForm : Form
     private bool _mouseTracking;                        // WM_MOUSELEAVE arming
     private const string VirtualHost = "zero.local";
 
+    // M2.2: browsed content views (composited layers above the shell). Input routing state:
+    //   _prevMouseTarget   = last controller the cursor was over (null = shell) — for Leave transitions
+    //   _mouseCaptureTarget = view (or shell=null) that received a button-down, held until button-up so a
+    //                         drag keeps going to it even if the cursor leaves its rect
+    private ResourceHost? _resources;
+    private ResourceView? _prevMouseTarget;
+    private ResourceView? _mouseCaptureTarget;
+    private bool _mouseCaptured;
+
     // Fullscreen (whole-screen, taskbar hidden) is distinct from maximize (work-area). We manage it
     // ourselves because the form is frameless; these remember how to restore.
     private bool _fullscreen;
@@ -124,6 +133,9 @@ sealed class MainForm : Form
                 try { _shell?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic); } catch { }
             };
 
+            // Browsed content lives on composition layers above this shell layer (content-on-top parity).
+            _resources = new ResourceHost(_comp, Handle, DeviceDpi / 96.0, PushEvent, LogLine);
+
             core.Navigate($"https://{VirtualHost}/index.html");
 
             // Give the freshly-created controller keyboard focus (the form already has OS focus on load).
@@ -161,11 +173,24 @@ sealed class MainForm : Form
                 case "open-external": OpenExternal(msg.args); break;
                 case "debug-log": DebugLog(msg.args); break;
 
+                // ── M2.2 browsed content (send) ─────────────────────────────
+                case "resource.set-bounds": ResourceSetBounds(msg.args); break;
+                case "resource.park": ResourceIdArg(msg.args, id => _resources?.Park(id)); break;
+                case "resource.close": ResourceIdArg(msg.args, id => _resources?.Close(id)); break;
+                case "resource.unmount": ResourceIdArg(msg.args, id => _resources?.Park(id)); break; // legacy alias → park
+                case "resource.discard-prewarm": ResourceIdArg(msg.args, id => _resources?.Close(id)); break;
+                case "resource.release-focus": GiveWebFocus(); break; // keyboard back to Zero's own UI
+                case "resource.set-theme": ResourceSetTheme(msg.args); break;
+
                 // ── request/response (invoke) ───────────────────────────────
                 case "win.is-maximized": Reply(msg.id, WindowState == FormWindowState.Maximized); break;
                 case "win.is-fullscreen": Reply(msg.id, _fullscreen); break;
                 case "system-idle": Reply(msg.id, IdleSeconds()); break;
                 case "web-title": Reply(msg.id, await WebTitle(msg.args)); break;
+                case "resource.mount": await ResourceMount(msg.args); Reply(msg.id, null); break;
+                // Warm pre-warm is M2.3; returning false makes the renderer take the normal cold mount path
+                // (a re-opened PARKED view is already warm because park() keeps its controller alive).
+                case "resource.prewarm": Reply(msg.id, false); break;
 
                 default:
                     // Unknown channel: if it expected a reply, resolve it so the JS promise never hangs.
@@ -328,6 +353,7 @@ sealed class MainForm : Form
                     }
                     catch { }
                 }
+                _resources?.SetScale(DeviceDpi / 96.0); // rescale content controllers to the new DPI
                 break;
 
             case NativeMethods.WM_SETFOCUS:
@@ -337,9 +363,11 @@ sealed class MainForm : Form
         }
     }
 
-    // Translate a Win32 mouse message into a CoreWebView2 SendMouseInput call on the shell controller.
-    // For M2.1 the shell fills the whole client at origin (0,0), so client coords map 1:1 to controller
-    // coords. (M2.2 will hit-test which composited layer a point belongs to before forwarding.)
+    // Translate a Win32 mouse message into a CoreWebView2 SendMouseInput call on the correct composition
+    // layer. Composition controllers receive NO spatial input automatically, so we hit-test the client
+    // point against the visible content rects: a hit routes to that content controller (translated into
+    // its local space); a miss routes to the shell (which fills the client at origin). A button-down
+    // captures its target until button-up so a drag that leaves the rect still reaches the same view.
     private void ForwardMouse(ref Message m)
     {
         if (_shell is null) return;
@@ -347,6 +375,7 @@ sealed class MainForm : Form
         CoreWebView2MouseEventKind kind;
         uint mouseData = 0;
         Point pt;
+        bool isDown = false, isUp = false;
 
         switch (m.Msg)
         {
@@ -365,21 +394,22 @@ sealed class MainForm : Form
                     NativeMethods.TrackMouseEvent(ref tme);
                     _mouseTracking = true;
                 }
-                pt = new Point(NativeMethods.LoWord(m.LParam), NativeMethods.HiWord(m.LParam));
+                pt = LParamPoint(m.LParam);
                 break;
             case NativeMethods.WM_MOUSELEAVE:
                 _mouseTracking = false;
-                try { _shell.SendMouseInput(CoreWebView2MouseEventKind.Leave, 0, 0, Point.Empty); } catch { }
+                SendLeaveTo(_prevMouseTarget); // clear hover on whichever layer the cursor was last over
+                _prevMouseTarget = null;
                 return;
-            case NativeMethods.WM_LBUTTONDOWN: kind = CoreWebView2MouseEventKind.LeftButtonDown; pt = LParamPoint(m.LParam); GiveWebFocus(); break;
-            case NativeMethods.WM_LBUTTONUP: kind = CoreWebView2MouseEventKind.LeftButtonUp; pt = LParamPoint(m.LParam); break;
-            case NativeMethods.WM_LBUTTONDBLCLK: kind = CoreWebView2MouseEventKind.LeftButtonDoubleClick; pt = LParamPoint(m.LParam); break;
-            case NativeMethods.WM_RBUTTONDOWN: kind = CoreWebView2MouseEventKind.RightButtonDown; pt = LParamPoint(m.LParam); break;
-            case NativeMethods.WM_RBUTTONUP: kind = CoreWebView2MouseEventKind.RightButtonUp; pt = LParamPoint(m.LParam); break;
-            case NativeMethods.WM_RBUTTONDBLCLK: kind = CoreWebView2MouseEventKind.RightButtonDoubleClick; pt = LParamPoint(m.LParam); break;
-            case NativeMethods.WM_MBUTTONDOWN: kind = CoreWebView2MouseEventKind.MiddleButtonDown; pt = LParamPoint(m.LParam); break;
-            case NativeMethods.WM_MBUTTONUP: kind = CoreWebView2MouseEventKind.MiddleButtonUp; pt = LParamPoint(m.LParam); break;
-            case NativeMethods.WM_MBUTTONDBLCLK: kind = CoreWebView2MouseEventKind.MiddleButtonDoubleClick; pt = LParamPoint(m.LParam); break;
+            case NativeMethods.WM_LBUTTONDOWN: kind = CoreWebView2MouseEventKind.LeftButtonDown; pt = LParamPoint(m.LParam); isDown = true; break;
+            case NativeMethods.WM_LBUTTONUP: kind = CoreWebView2MouseEventKind.LeftButtonUp; pt = LParamPoint(m.LParam); isUp = true; break;
+            case NativeMethods.WM_LBUTTONDBLCLK: kind = CoreWebView2MouseEventKind.LeftButtonDoubleClick; pt = LParamPoint(m.LParam); isDown = true; break;
+            case NativeMethods.WM_RBUTTONDOWN: kind = CoreWebView2MouseEventKind.RightButtonDown; pt = LParamPoint(m.LParam); isDown = true; break;
+            case NativeMethods.WM_RBUTTONUP: kind = CoreWebView2MouseEventKind.RightButtonUp; pt = LParamPoint(m.LParam); isUp = true; break;
+            case NativeMethods.WM_RBUTTONDBLCLK: kind = CoreWebView2MouseEventKind.RightButtonDoubleClick; pt = LParamPoint(m.LParam); isDown = true; break;
+            case NativeMethods.WM_MBUTTONDOWN: kind = CoreWebView2MouseEventKind.MiddleButtonDown; pt = LParamPoint(m.LParam); isDown = true; break;
+            case NativeMethods.WM_MBUTTONUP: kind = CoreWebView2MouseEventKind.MiddleButtonUp; pt = LParamPoint(m.LParam); isUp = true; break;
+            case NativeMethods.WM_MBUTTONDBLCLK: kind = CoreWebView2MouseEventKind.MiddleButtonDoubleClick; pt = LParamPoint(m.LParam); isDown = true; break;
             case NativeMethods.WM_MOUSEWHEEL:
                 kind = CoreWebView2MouseEventKind.Wheel;
                 mouseData = unchecked((uint)(int)NativeMethods.HiWord(m.WParam)); // signed wheel delta
@@ -394,7 +424,49 @@ sealed class MainForm : Form
                 return;
         }
 
-        try { _shell.SendMouseInput(kind, MouseKeys(m.WParam), mouseData, pt); } catch { }
+        // Pick the target layer: an active button-drag stays on its captured target; otherwise hit-test.
+        ResourceView? target = _mouseCaptured ? _mouseCaptureTarget : _resources?.HitTest(pt);
+
+        // Leave-transition: if the hovered layer changed, clear hover on the one we left.
+        if (!ReferenceEquals(target, _prevMouseTarget))
+        {
+            SendLeaveTo(_prevMouseTarget);
+            _prevMouseTarget = target;
+        }
+
+        // A press captures the target and takes keyboard focus for that layer.
+        if (isDown)
+        {
+            _mouseCaptured = true;
+            _mouseCaptureTarget = target;
+            if (target is null) { try { _shell.MoveFocus(CoreWebView2MoveFocusReason.Programmatic); } catch { } }
+            else { try { target.Controller?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic); } catch { } }
+        }
+
+        // Route to the chosen controller, translating into its local (physical-px) space.
+        if (target is null)
+        {
+            try { _shell.SendMouseInput(kind, MouseKeys(m.WParam), mouseData, pt); } catch { }
+        }
+        else
+        {
+            var origin = target.BoundsPx.Location;
+            var local = new Point(pt.X - origin.X, pt.Y - origin.Y);
+            try { target.Controller?.SendMouseInput(kind, MouseKeys(m.WParam), mouseData, local); } catch { }
+        }
+
+        if (isUp) { _mouseCaptured = false; _mouseCaptureTarget = null; }
+    }
+
+    // Send a Leave to a layer (null = shell) so its hover/cursor state clears when the pointer moves away.
+    private void SendLeaveTo(ResourceView? target)
+    {
+        try
+        {
+            if (target is null) _shell?.SendMouseInput(CoreWebView2MouseEventKind.Leave, 0, 0, Point.Empty);
+            else target.Controller?.SendMouseInput(CoreWebView2MouseEventKind.Leave, 0, 0, Point.Empty);
+        }
+        catch { }
     }
 
     private static Point LParamPoint(nint lParam)
@@ -415,7 +487,9 @@ sealed class MainForm : Form
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        // Tear down the controller then the composition target, in that order.
+        // Tear down content views, then the shell controller, then the composition target, in that order.
+        try { _resources?.DisposeAll(); } catch { }
+        _resources = null;
         try { _shell?.Close(); } catch { }
         _shell = null;
         _shellCore = null;
@@ -440,6 +514,68 @@ sealed class MainForm : Form
         }
         catch { /* best-effort */ }
     }
+
+    // Diagnostic line to the desktop debug log (same file as init-fail / debug-log). Best-effort.
+    private void LogLine(string s)
+    {
+        try { File.AppendAllText(DebugLogPath(), $"{DateTime.Now:HH:mm:ss} {s}{Environment.NewLine}"); }
+        catch { }
+    }
+
+    // ── M2.2 resource.* argument handling ──────────────────────────────────────
+    private async Task ResourceMount(JsonElement a)
+    {
+        if (_resources is null || a.ValueKind != JsonValueKind.Object) return;
+        string? id = GetStr(a, "id");
+        string? url = GetStr(a, "url");
+        string? envKey = GetStr(a, "envKey");
+        if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(url)) return;
+        var (px, visible) = RectArg(a);
+        await _resources.MountAsync(id, url, envKey, px, visible);
+    }
+
+    private void ResourceSetBounds(JsonElement a)
+    {
+        if (_resources is null || a.ValueKind != JsonValueKind.Object) return;
+        string? id = GetStr(a, "id");
+        if (string.IsNullOrEmpty(id)) return;
+        var (px, visible) = RectArg(a);
+        _resources.SetBounds(id, px, visible);
+    }
+
+    private void ResourceSetTheme(JsonElement a)
+    {
+        if (_resources is null) return;
+        var mode = a.ValueKind == JsonValueKind.String ? a.GetString() : null;
+        var scheme = mode == "light" ? CoreWebView2PreferredColorScheme.Light
+                   : mode == "dark" ? CoreWebView2PreferredColorScheme.Dark
+                   : CoreWebView2PreferredColorScheme.Auto;
+        _resources.SetTheme(scheme);
+    }
+
+    // park/close/unmount/discard-prewarm carry the resource id as a bare JSON string arg.
+    private static void ResourceIdArg(JsonElement a, Action<string> fn)
+    {
+        if (a.ValueKind == JsonValueKind.String)
+        {
+            var id = a.GetString();
+            if (!string.IsNullOrEmpty(id)) fn(id);
+        }
+    }
+
+    // Read the { rect:{x,y,width,height} } (CSS px) off a resource message → physical-px rect + visibility.
+    private (Rectangle px, bool visible) RectArg(JsonElement a)
+    {
+        if (_resources is null || !a.TryGetProperty("rect", out var r) || r.ValueKind != JsonValueKind.Object)
+            return (Rectangle.Empty, false);
+        return _resources.ToPx(GetNum(r, "x"), GetNum(r, "y"), GetNum(r, "width"), GetNum(r, "height"));
+    }
+
+    private static string? GetStr(JsonElement o, string name)
+        => o.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    private static double GetNum(JsonElement o, string name)
+        => o.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : 0;
 
     private async Task<object> WebTitle(JsonElement args)
     {

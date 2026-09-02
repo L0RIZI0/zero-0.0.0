@@ -55,6 +55,12 @@ internal sealed class CompositionHost : IDisposable
         return layer;
     }
 
+    // Detach a content layer when its view is closed (M2.2). Best-effort: the visual may already be gone.
+    public void RemoveLayer(ContainerVisual layer)
+    {
+        try { _root.Children.Remove(layer); } catch { }
+    }
+
     public Size Size => _size;
 
     public void Resize(Size size) => _size = size;
