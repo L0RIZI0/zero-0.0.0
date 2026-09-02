@@ -3,22 +3,29 @@ using System.Text;
 using System.Text.Json;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.WinForms;
 
 namespace Zero.ShellHost;
 
 // ---------------------------------------------------------------------------
-// The Zero shell window: a custom-chrome WinForms form hosting a single full-bleed WebView2 that renders
-// Zero's own UI (the Next static export) from the virtual host https://zero.local/. All renderer↔host
-// traffic goes through the `window.zero` shim injected at document-created time; messages arrive here
-// via WebMessageReceived and are dispatched below. The window keeps native frame styles (Sizable) for
-// resize/snap/animations but hides the title bar AND the top border line via WM_NCCALCSIZE (see WndProc),
-// so it LOOKS frameless while the OS still handles move (HTCAPTION drag), resize (sides/bottom/corners),
-// and min/max/close animations.
+// The Zero shell window: a custom-chrome WinForms form that renders Zero's own UI (the Next static
+// export from https://zero.local/) via a WebView2 COMPOSITION controller layered in a Windows.UI
+// composition tree bound to this HWND. All renderer↔host traffic goes through the `window.zero` shim
+// injected at document-created time; messages arrive via WebMessageReceived and are dispatched below.
+// The window keeps native frame styles (Sizable) for resize/snap/animations but hides the title bar and
+// top border via WM_NCCALCSIZE, so it LOOKS frameless while the OS handles move/resize/min-max-close.
+//
+// M2.1: the shell moved off the windowed WebView2 control onto a composition controller. This is the
+// FOUNDATION for blending — a composited layer can be transparent, so from M2.2 browsed content sits on
+// a lower layer and shows through the shell's transparent regions (§0 can finally paint over live web).
+// The cost is that spatial input is no longer delivered automatically: we forward mouse/wheel to the
+// controller from WndProc (see ForwardMouse) and drive keyboard focus via MoveFocus.
 // ---------------------------------------------------------------------------
 sealed class MainForm : Form
 {
-    private readonly WebView2 _web = new();
+    private CompositionHost? _comp;
+    private CoreWebView2CompositionController? _shell; // the shell's composition controller
+    private CoreWebView2? _shellCore;                  // == _shell.CoreWebView2 (cached)
+    private bool _mouseTracking;                        // WM_MOUSELEAVE arming
     private const string VirtualHost = "zero.local";
 
     // Fullscreen (whole-screen, taskbar hidden) is distinct from maximize (work-area). We manage it
@@ -48,50 +55,86 @@ sealed class MainForm : Form
         // Zero's own "z" mark for the taskbar; harmless if the file is absent in dev.
         TryLoadIcon();
 
-        _web.Dock = DockStyle.Fill;
-        Controls.Add(_web);
+        // The composition tree paints the client area; there is no child control. We let WinForms clear
+        // the window to BackColor (#0b0b0c) as an opaque backdrop — composition composites ON TOP of it,
+        // and it shows through any (future) transparent shell regions with no white flash. Double-buffer
+        // to avoid flicker on that clear during resizes.
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
 
         Load += async (_, _) => await InitAsync();
     }
 
     private async Task InitAsync()
     {
-        // Keep the shell's WebView2 profile SEPARATE from the (M2) content profiles: this is Zero's own
-        // UI, not browsed sites. %LOCALAPPDATA%\Zero\shell-webview2.
-        string userData = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Zero", "shell-webview2");
-        var env = await CoreWebView2Environment.CreateAsync(browserExecutableFolder: null, userDataFolder: userData);
-        await _web.EnsureCoreWebView2Async(env);
-
-        var core = _web.CoreWebView2;
-        var s = core.Settings;
-        s.AreDefaultContextMenusEnabled = false; // Zero draws its own in-DOM menus over shell UI
-        s.IsStatusBarEnabled = false;
-        s.AreDevToolsEnabled = true; // keep F12 during the migration
-        s.IsSwipeNavigationEnabled = false;
-        s.AreBrowserAcceleratorKeysEnabled = false; // no Ctrl+P/Ctrl+F etc. leaking into shell UI
-
-        // Serve the static export as a real https origin (localStorage/IndexedDB get a stable origin).
-        string? outDir = ResolveOutDir();
-        if (outDir is null)
+        try
         {
-            core.NavigateToString(MissingExportHtml());
-            return;
+            // 1) Composition stack bound to this HWND (Compositor + DesktopWindowTarget + root visual).
+            _comp = new CompositionHost(Handle, ClientSize);
+
+            // 2) Shell WebView2 environment. Keep the shell profile SEPARATE from the (M2.2+) content
+            //    profiles: this is Zero's own UI, not browsed sites. %LOCALAPPDATA%\Zero\shell-webview2.
+            string userData = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Zero", "shell-webview2");
+            var env = await CoreWebView2Environment.CreateAsync(browserExecutableFolder: null, userDataFolder: userData);
+
+            // 3) Composition controller (NOT the windowed control): renders into a visual we own.
+            _shell = await env.CreateCoreWebView2CompositionControllerAsync(Handle);
+            var core = _shell.CoreWebView2;
+            _shellCore = core;
+
+            // Attach the controller to the FRONTMOST composition layer and size it to the client.
+            var layer = _comp.AddLayer();
+            _shell.RootVisualTarget = layer;
+            _shell.RasterizationScale = DeviceDpi / 96.0;
+            _shell.ShouldDetectMonitorScaleChanges = false; // we drive scale from WM_DPICHANGED
+            _shell.Bounds = new Rectangle(0, 0, ClientSize.Width, ClientSize.Height);
+            _shell.IsVisible = true;
+
+            var s = core.Settings;
+            s.AreDefaultContextMenusEnabled = false; // Zero draws its own in-DOM menus over shell UI
+            s.IsStatusBarEnabled = false;
+            s.AreDevToolsEnabled = true; // keep F12 during the migration
+            s.IsSwipeNavigationEnabled = false;
+            s.AreBrowserAcceleratorKeysEnabled = false; // no Ctrl+P/Ctrl+F etc. leaking into shell UI
+
+            // Serve the static export as a real https origin (localStorage/IndexedDB get a stable origin).
+            string? outDir = ResolveOutDir();
+            if (outDir is null)
+            {
+                core.NavigateToString(MissingExportHtml());
+                return;
+            }
+            core.SetVirtualHostNameToFolderMapping(VirtualHost, outDir, CoreWebView2HostResourceAccessKind.Allow);
+
+            // Inject the window.zero shim BEFORE any page script runs (baked constants resolved now).
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(ZeroShim.Build(BakedConstants()));
+
+            core.WebMessageReceived += OnWebMessage;
+            core.DocumentTitleChanged += (_, _) =>
+            {
+                var t = core.DocumentTitle;
+                Text = string.IsNullOrWhiteSpace(t) ? "Zero" : t;
+            };
+
+            // Accept focus moves the webview requests (tabbing) instead of leaving keyboard in limbo.
+            _shell.MoveFocusRequested += (_, e) =>
+            {
+                e.Handled = true;
+                try { _shell?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic); } catch { }
+            };
+
+            core.Navigate($"https://{VirtualHost}/index.html");
+
+            // Give the freshly-created controller keyboard focus (the form already has OS focus on load).
+            try { _shell.MoveFocus(CoreWebView2MoveFocusReason.Programmatic); } catch { }
         }
-        core.SetVirtualHostNameToFolderMapping(VirtualHost, outDir, CoreWebView2HostResourceAccessKind.Allow);
-
-        // Inject the window.zero shim BEFORE any page script runs (baked constants resolved now).
-        await core.AddScriptToExecuteOnDocumentCreatedAsync(ZeroShim.Build(BakedConstants()));
-
-        core.WebMessageReceived += OnWebMessage;
-        core.DocumentTitleChanged += (_, _) =>
+        catch (Exception ex)
         {
-            var t = core.DocumentTitle;
-            Text = string.IsNullOrWhiteSpace(t) ? "Zero" : t;
-        };
-
-        core.Navigate($"https://{VirtualHost}/index.html");
+            // Surface composition/controller failures visibly rather than a blank window.
+            File.AppendAllText(DebugLogPath(), $"{DateTime.Now:HH:mm:ss} [init-fail] {ex}{Environment.NewLine}");
+            try { BackColor = ColorTranslator.FromHtml("#3a0b0b"); } catch { }
+        }
     }
 
     // ── window.zero message dispatch ─────────────────────────────────────────
@@ -153,8 +196,8 @@ sealed class MainForm : Form
 
     private void PostJson(object o)
     {
-        if (_web.CoreWebView2 is null) return;
-        try { _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(o)); } catch { /* view gone */ }
+        if (_shellCore is null) return;
+        try { _shellCore.PostWebMessageAsJson(JsonSerializer.Serialize(o)); } catch { /* view gone */ }
     }
 
     // ── window operations ────────────────────────────────────────────────────
@@ -235,16 +278,132 @@ sealed class MainForm : Form
             return;
         }
 
+        // Spatial input: visual hosting delivers NO mouse/wheel to the controller automatically, so we
+        // forward it here. Done BEFORE base so the webview sees the event even if base would swallow it.
+        ForwardMouse(ref m);
+
         base.WndProc(ref m);
 
-        // Detect maximize-state transitions off the resulting state and mirror them to the renderer.
-        // (Native maximize with WS_CAPTION already respects the monitor work area, so the old manual
-        // WM_GETMINMAXINFO clamp is no longer needed.)
-        if (m.Msg == 0x0005 /* WM_SIZE */)
+        switch (m.Msg)
         {
-            bool max = WindowState == FormWindowState.Maximized;
-            if (max != _lastMaximized) { _lastMaximized = max; PushEvent("win.maximized", max); }
+            case NativeMethods.WM_SIZE:
+                // Keep the shell controller filling the client area.
+                if (_shell is not null)
+                {
+                    try { _shell.Bounds = new Rectangle(0, 0, ClientSize.Width, ClientSize.Height); } catch { }
+                }
+                _comp?.Resize(ClientSize);
+                // Mirror maximize-state transitions to the renderer. (Native maximize with WS_CAPTION
+                // already respects the monitor work area, so no manual WM_GETMINMAXINFO clamp is needed.)
+                bool max = WindowState == FormWindowState.Maximized;
+                if (max != _lastMaximized) { _lastMaximized = max; PushEvent("win.maximized", max); }
+                break;
+
+            case NativeMethods.WM_DPICHANGED:
+                // Per-monitor DPI change: re-scale the controller's rasterization to match.
+                if (_shell is not null)
+                {
+                    try
+                    {
+                        _shell.RasterizationScale = DeviceDpi / 96.0;
+                        _shell.Bounds = new Rectangle(0, 0, ClientSize.Width, ClientSize.Height);
+                    }
+                    catch { }
+                }
+                break;
+
+            case NativeMethods.WM_SETFOCUS:
+                // The window got keyboard focus → hand it to the webview so typing reaches Zero's UI.
+                try { _shell?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic); } catch { }
+                break;
         }
+    }
+
+    // Translate a Win32 mouse message into a CoreWebView2 SendMouseInput call on the shell controller.
+    // For M2.1 the shell fills the whole client at origin (0,0), so client coords map 1:1 to controller
+    // coords. (M2.2 will hit-test which composited layer a point belongs to before forwarding.)
+    private void ForwardMouse(ref Message m)
+    {
+        if (_shell is null) return;
+
+        CoreWebView2MouseEventKind kind;
+        uint mouseData = 0;
+        Point pt;
+
+        switch (m.Msg)
+        {
+            case NativeMethods.WM_MOUSEMOVE:
+                kind = CoreWebView2MouseEventKind.Move;
+                // Arm WM_MOUSELEAVE so we can tell the webview when the cursor exits.
+                if (!_mouseTracking)
+                {
+                    var tme = new NativeMethods.TRACKMOUSEEVENT
+                    {
+                        cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.TRACKMOUSEEVENT>(),
+                        dwFlags = NativeMethods.TME_LEAVE,
+                        hwndTrack = Handle,
+                        dwHoverTime = 0,
+                    };
+                    NativeMethods.TrackMouseEvent(ref tme);
+                    _mouseTracking = true;
+                }
+                pt = new Point(NativeMethods.LoWord(m.LParam), NativeMethods.HiWord(m.LParam));
+                break;
+            case NativeMethods.WM_MOUSELEAVE:
+                _mouseTracking = false;
+                try { _shell.SendMouseInput(CoreWebView2MouseEventKind.Leave, 0, 0, Point.Empty); } catch { }
+                return;
+            case NativeMethods.WM_LBUTTONDOWN: kind = CoreWebView2MouseEventKind.LeftButtonDown; pt = LParamPoint(m.LParam); GiveWebFocus(); break;
+            case NativeMethods.WM_LBUTTONUP: kind = CoreWebView2MouseEventKind.LeftButtonUp; pt = LParamPoint(m.LParam); break;
+            case NativeMethods.WM_LBUTTONDBLCLK: kind = CoreWebView2MouseEventKind.LeftButtonDoubleClick; pt = LParamPoint(m.LParam); break;
+            case NativeMethods.WM_RBUTTONDOWN: kind = CoreWebView2MouseEventKind.RightButtonDown; pt = LParamPoint(m.LParam); break;
+            case NativeMethods.WM_RBUTTONUP: kind = CoreWebView2MouseEventKind.RightButtonUp; pt = LParamPoint(m.LParam); break;
+            case NativeMethods.WM_RBUTTONDBLCLK: kind = CoreWebView2MouseEventKind.RightButtonDoubleClick; pt = LParamPoint(m.LParam); break;
+            case NativeMethods.WM_MBUTTONDOWN: kind = CoreWebView2MouseEventKind.MiddleButtonDown; pt = LParamPoint(m.LParam); break;
+            case NativeMethods.WM_MBUTTONUP: kind = CoreWebView2MouseEventKind.MiddleButtonUp; pt = LParamPoint(m.LParam); break;
+            case NativeMethods.WM_MBUTTONDBLCLK: kind = CoreWebView2MouseEventKind.MiddleButtonDoubleClick; pt = LParamPoint(m.LParam); break;
+            case NativeMethods.WM_MOUSEWHEEL:
+                kind = CoreWebView2MouseEventKind.Wheel;
+                mouseData = unchecked((uint)(int)NativeMethods.HiWord(m.WParam)); // signed wheel delta
+                pt = ScreenLParamToClient(m.LParam);
+                break;
+            case NativeMethods.WM_MOUSEHWHEEL:
+                kind = CoreWebView2MouseEventKind.HorizontalWheel;
+                mouseData = unchecked((uint)(int)NativeMethods.HiWord(m.WParam));
+                pt = ScreenLParamToClient(m.LParam);
+                break;
+            default:
+                return;
+        }
+
+        try { _shell.SendMouseInput(kind, MouseKeys(m.WParam), mouseData, pt); } catch { }
+    }
+
+    private static Point LParamPoint(nint lParam)
+        => new(NativeMethods.LoWord(lParam), NativeMethods.HiWord(lParam));
+
+    // Wheel messages carry SCREEN coords in lParam; map to this form's client space.
+    private Point ScreenLParamToClient(nint lParam)
+        => PointToClient(new Point(NativeMethods.LoWord(lParam), NativeMethods.HiWord(lParam)));
+
+    // MK_* modifier/button flags live in the low word of wParam for button/move messages.
+    private static CoreWebView2MouseEventVirtualKeys MouseKeys(nint wParam)
+        => (CoreWebView2MouseEventVirtualKeys)(NativeMethods.LoWord(wParam) & 0xFFFF);
+
+    private void GiveWebFocus()
+    {
+        try { _shell?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic); } catch { }
+    }
+
+    protected override void OnFormClosed(FormClosedEventArgs e)
+    {
+        // Tear down the controller then the composition target, in that order.
+        try { _shell?.Close(); } catch { }
+        _shell = null;
+        _shellCore = null;
+        try { _comp?.Dispose(); } catch { }
+        _comp = null;
+        base.OnFormClosed(e);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -324,7 +483,7 @@ sealed class MainForm : Form
         return (info ?? asm.GetName().Version?.ToString() ?? "0.0.0").Split('+')[0];
     }
 
-    // ── static-export + environment plumbing ─────────────────────────────────
+    // ── static-export + environment plumbing ─────────────────────────���───────
     private static string? ResolveOutDir()
     {
         // 1) explicit override (used by the dev launcher / packaging).

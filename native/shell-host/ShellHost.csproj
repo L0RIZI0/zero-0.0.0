@@ -2,7 +2,11 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- M2: bumped from net8.0-windows to a Windows-10 TFM so the CsWinRT projections for
+         Windows.UI.Composition / Windows.System.DispatcherQueue are available — these are what let us
+         host both the shell and (M2.2+) browsed content as BLENDABLE composition visuals in one window.
+         19041 (2004) is a safe floor: it long predates the Surface's Win11 and every WebView2 runtime. -->
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
