@@ -10,6 +10,11 @@
     <AssemblyName>Zero</AssemblyName>
     <RootNamespace>Zero.ShellHost</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Version parity with the Electron shell: window.zero.appVersion mirrors Electron's
+         app.getVersion() = package.json "version" (0.1.0). Without this the header showed the .NET
+         assembly default (1.0.0). AppVersion() reads this via AssemblyInformationalVersion. In M4 the
+         Velopack package version becomes authoritative and this stays in lockstep with package.json. -->
+    <Version>0.1.0</Version>
     <!-- Emitted into ApplicationConfiguration.Initialize() so WinForms-side metrics match the
          manifest's PerMonitorV2. Setting it here (not via Application.SetHighDpiMode) avoids being
          overwritten by Initialize()'s own high-DPI call. -->

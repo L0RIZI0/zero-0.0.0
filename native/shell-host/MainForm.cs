@@ -8,17 +8,17 @@ using Microsoft.Web.WebView2.WinForms;
 namespace Zero.ShellHost;
 
 // ---------------------------------------------------------------------------
-// The Zero shell window: a frameless WinForms form hosting a single full-bleed WebView2 that renders
+// The Zero shell window: a custom-chrome WinForms form hosting a single full-bleed WebView2 that renders
 // Zero's own UI (the Next static export) from the virtual host https://zero.local/. All renderer↔host
 // traffic goes through the `window.zero` shim injected at document-created time; messages arrive here
-// via WebMessageReceived and are dispatched below. Window ops (move/resize/min/max/fullscreen) are
-// native, since a frameless form otherwise can't be moved or resized.
+// via WebMessageReceived and are dispatched below. The window keeps native frame styles (Sizable) for
+// resize/snap/animations but hides the title bar via WM_NCCALCSIZE (see WndProc), so it LOOKS frameless
+// while the OS still handles move (HTCAPTION drag), resize (all edges), and min/max/close animations.
 // ---------------------------------------------------------------------------
 sealed class MainForm : Form
 {
     private readonly WebView2 _web = new();
     private const string VirtualHost = "zero.local";
-    private const int ResizeGrip = 6; // px band around edges that initiates a frameless resize
 
     // Fullscreen (whole-screen, taskbar hidden) is distinct from maximize (work-area). We manage it
     // ourselves because the form is frameless; these remember how to restore.
@@ -32,7 +32,14 @@ sealed class MainForm : Form
     public MainForm()
     {
         Text = "Zero";
-        FormBorderStyle = FormBorderStyle.None;
+        // Sizable (NOT None): keeps the native window frame styles (WS_THICKFRAME + WS_CAPTION +
+        // min/max box) so we get native edge/corner resize, Aero snap, and real min/max/close
+        // ANIMATIONS. The visible title bar is then removed in WndProc via WM_NCCALCSIZE, which
+        // reclaims only the caption strip and leaves the sizing borders — so it still LOOKS frameless.
+        // (FormBorderStyle.None = WS_POPUP, which has none of those and can't resize with a full-bleed
+        // WebView2 child swallowing mouse at the edges — the cause of the M1 "can't resize / no
+        // animation" report.)
+        FormBorderStyle = FormBorderStyle.Sizable;
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = ColorTranslator.FromHtml("#0b0b0c"); // matches Electron backgroundColor (no white flash)
         Size = new Size(1440, 900);
@@ -190,65 +197,43 @@ sealed class MainForm : Form
         catch { /* best-effort */ }
     }
 
-    // ── frameless resize + maximize clamping via WndProc ──────────────────────
+    // ── custom frame (borderless look, native resize/animations) via WndProc ──
     protected override void WndProc(ref Message m)
     {
-        // Frameless resize borders: intercept BEFORE default processing.
-        if (m.Msg == NativeMethods.WM_NCHITTEST && !_fullscreen && WindowState == FormWindowState.Normal)
+        // WM_NCCALCSIZE (wParam=TRUE) decides how much of the window is client vs. non-client frame.
+        // We keep the native sizing borders (so the OS handles resize on every edge + Aero snap) but
+        // reclaim the CAPTION strip into the client, so no title bar is drawn → frameless look.
+        if (m.Msg == NativeMethods.WM_NCCALCSIZE && m.WParam != nint.Zero)
         {
-            var hit = HitTestResize();
-            if (hit != 0) { m.Result = hit; return; }
-        }
+            if (_fullscreen)
+            {
+                // True fullscreen: no frame at all — the whole window rect is client (edge-to-edge).
+                // Leaving rgrc[0] untouched and returning 0 means "client == proposed window rect".
+                m.Result = nint.Zero;
+                return;
+            }
 
-        // Maximize clamp: let the default proc fill MINMAXINFO first, THEN clamp to the work area so a
-        // borderless maximize doesn't cover the taskbar (base must run first or it overwrites our edit).
-        if (m.Msg == NativeMethods.WM_GETMINMAXINFO)
-        {
+            // Let the default proc reserve the standard frame (sizing borders + caption)…
             base.WndProc(ref m);
-            ClampMaximizeToWorkArea(m.LParam);
+            // …then give the caption height back to the client. The sizing borders stay non-client,
+            // so all four edges/corners remain natively resizable; only the title bar is gone.
+            var rc = System.Runtime.InteropServices.Marshal.PtrToStructure<NativeMethods.RECT>(m.LParam);
+            rc.top -= NativeMethods.GetSystemMetrics(NativeMethods.SM_CYCAPTION);
+            System.Runtime.InteropServices.Marshal.StructureToPtr(rc, m.LParam, false);
+            m.Result = nint.Zero;
             return;
         }
 
         base.WndProc(ref m);
 
         // Detect maximize-state transitions off the resulting state and mirror them to the renderer.
+        // (Native maximize with WS_CAPTION already respects the monitor work area, so the old manual
+        // WM_GETMINMAXINFO clamp is no longer needed.)
         if (m.Msg == 0x0005 /* WM_SIZE */)
         {
             bool max = WindowState == FormWindowState.Maximized;
             if (max != _lastMaximized) { _lastMaximized = max; PushEvent("win.maximized", max); }
         }
-    }
-
-    private nint HitTestResize()
-    {
-        var p = PointToClient(Cursor.Position);
-        int w = ClientSize.Width, h = ClientSize.Height;
-        bool left = p.X <= ResizeGrip, right = p.X >= w - ResizeGrip;
-        bool top = p.Y <= ResizeGrip, bottom = p.Y >= h - ResizeGrip;
-        if (top && left) return NativeMethods.HTTOPLEFT;
-        if (top && right) return NativeMethods.HTTOPRIGHT;
-        if (bottom && left) return NativeMethods.HTBOTTOMLEFT;
-        if (bottom && right) return NativeMethods.HTBOTTOMRIGHT;
-        if (left) return NativeMethods.HTLEFT;
-        if (right) return NativeMethods.HTRIGHT;
-        if (top) return NativeMethods.HTTOP;
-        if (bottom) return NativeMethods.HTBOTTOM;
-        return 0;
-    }
-
-    private void ClampMaximizeToWorkArea(nint lParam)
-    {
-        var mmi = System.Runtime.InteropServices.Marshal.PtrToStructure<NativeMethods.MINMAXINFO>(lParam);
-        var screen = Screen.FromHandle(Handle);
-        var wa = screen.WorkingArea;
-        var b = screen.Bounds;
-        mmi.ptMaxPosition = new NativeMethods.POINT { X = wa.Left - b.Left, Y = wa.Top - b.Top };
-        mmi.ptMaxSize = new NativeMethods.POINT { X = wa.Width, Y = wa.Height };
-        mmi.ptMinTrackSize = new NativeMethods.POINT { X = MinimumSize.Width, Y = MinimumSize.Height };
-        // Write the edited struct back to the unmanaged MINMAXINFO the OS passed in. `StructureToPtr`
-        // (not the nonexistent StructureToStructure) is the managed→unmanaged marshaller; fDeleteOld:false
-        // because the OS owns this buffer and there's no prior managed allocation to release.
-        System.Runtime.InteropServices.Marshal.StructureToPtr(mmi, lParam, false);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
