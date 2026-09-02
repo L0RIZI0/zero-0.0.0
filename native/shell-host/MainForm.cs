@@ -135,6 +135,7 @@ sealed class MainForm : Form
 
             // Browsed content lives on composition layers above this shell layer (content-on-top parity).
             _resources = new ResourceHost(_comp, Handle, DeviceDpi / 96.0, PushEvent, LogLine);
+            _resources.WarmUp(); // overlap the cold content-environment create with shell startup
 
             core.Navigate($"https://{VirtualHost}/index.html");
 

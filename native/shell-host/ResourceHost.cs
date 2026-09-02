@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -40,7 +41,7 @@ internal sealed class ResourceHost
     private readonly Action<string> _log;
     private readonly Dictionary<string, ResourceView> _views = new();
 
-    private CoreWebView2Environment? _env;
+    private Task<CoreWebView2Environment>? _envTask;
     private double _scale;
     private CoreWebView2PreferredColorScheme _scheme = CoreWebView2PreferredColorScheme.Auto;
 
@@ -55,16 +56,32 @@ internal sealed class ResourceHost
 
     public IReadOnlyCollection<ResourceView> Views => _views.Values;
 
+    // Kick off content-environment creation during idle shell startup so the FIRST resource open doesn't
+    // pay the cold CoreWebView2Environment.CreateAsync cost inline. Stays on the UI thread (the async
+    // method yields at its first await, so it doesn't block the pump); failures are retried and surfaced
+    // on the real mount. This is the cheap half of prewarming — warm per-view controllers are M2.3.
+    public void WarmUp()
+    {
+        _ = WarmAsync();
+        async Task WarmAsync()
+        {
+            try { await EnvAsync(); _log("content env warmed"); }
+            catch (Exception ex) { _log($"content env warm failed: {ex.Message}"); }
+        }
+    }
+
     // Content lives in its OWN WebView2 user-data folder, kept separate from the shell profile so browsed
     // sites can never touch Zero's own storage. Per-resource cookie-jar isolation is then a named Profile.
-    private async Task<CoreWebView2Environment> EnvAsync()
+    private Task<CoreWebView2Environment> EnvAsync()
     {
-        if (_env is not null) return _env;
+        // Cache the in-flight Task (not just the result) so WarmUp() and a racing MountAsync share ONE
+        // CreateAsync — a second concurrent environment on the same user-data folder would fail.
+        if (_envTask is not null) return _envTask;
         string userData = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Zero", "content-webview2");
-        _env = await CoreWebView2Environment.CreateAsync(browserExecutableFolder: null, userDataFolder: userData);
-        return _env;
+        _envTask = CoreWebView2Environment.CreateAsync(browserExecutableFolder: null, userDataFolder: userData);
+        return _envTask;
     }
 
     // Convert a renderer rect (CSS px, client-relative; x=-100000 sentinel = parked off-screen) into a
@@ -108,6 +125,8 @@ internal sealed class ResourceHost
             _emit("resource.status", new { id, ok = false, detail = "mount failed: " + ex.Message });
             _views.Remove(id);
             view.Dispose();
+            // If the shared environment task itself faulted, drop it so the next mount retries cleanly.
+            if (_envTask is { IsFaulted: true }) _envTask = null;
         }
     }
 
@@ -354,13 +373,23 @@ internal sealed class ResourceView : IDisposable
 
     private void ApplyBounds()
     {
-        if (_controller is null) return;
+        if (_controller is null || _layer is null) return;
         try
         {
             bool show = _visible && _boundsPx.Width > 0 && _boundsPx.Height > 0 && _boundsPx.X > -50000;
             _controller.IsVisible = show;
-            // Bounds positions AND sizes the content within its full-window layer visual (physical px).
-            if (show) _controller.Bounds = _boundsPx;
+            if (show)
+            {
+                // Composition-hosting coordinate model: on a CoreWebView2CompositionController, Bounds sets
+                // only the SIZE (in the RootVisualTarget's local space, so its origin is 0,0). POSITION
+                // comes from the layer visual's Offset. Setting a non-zero Bounds.X/Y does NOT move the
+                // content — that was the top-left-pinning bug. So: visual Offset = on-screen (x,y), visual
+                // Size + controller Bounds = (0,0,w,h). Mouse input is then forwarded in this same local
+                // space (MainForm subtracts BoundsPx.Location before SendMouseInput), so hits line up.
+                _layer.Offset = new Vector3(_boundsPx.X, _boundsPx.Y, 0f);
+                _layer.Size = new Vector2(_boundsPx.Width, _boundsPx.Height);
+                _controller.Bounds = new Rectangle(0, 0, _boundsPx.Width, _boundsPx.Height);
+            }
         }
         catch (Exception ex) { _log($"resource applyBounds failed id={_id}: {ex.Message}"); }
     }
