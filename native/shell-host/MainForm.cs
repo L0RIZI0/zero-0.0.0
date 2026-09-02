@@ -245,7 +245,10 @@ sealed class MainForm : Form
         mmi.ptMaxPosition = new NativeMethods.POINT { X = wa.Left - b.Left, Y = wa.Top - b.Top };
         mmi.ptMaxSize = new NativeMethods.POINT { X = wa.Width, Y = wa.Height };
         mmi.ptMinTrackSize = new NativeMethods.POINT { X = MinimumSize.Width, Y = MinimumSize.Height };
-        System.Runtime.InteropServices.Marshal.StructureToStructure(mmi, lParam);
+        // Write the edited struct back to the unmanaged MINMAXINFO the OS passed in. `StructureToPtr`
+        // (not the nonexistent StructureToStructure) is the managed→unmanaged marshaller; fDeleteOld:false
+        // because the OS owns this buffer and there's no prior managed allocation to release.
+        System.Runtime.InteropServices.Marshal.StructureToPtr(mmi, lParam, false);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
