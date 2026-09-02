@@ -16,6 +16,7 @@ static class NativeMethods
 {
     // ── Window messages ──────────────────────────────────────────────────────
     public const int WM_NCCALCSIZE = 0x0083;
+    public const int WM_NCHITTEST = 0x0084;
     public const int WM_NCLBUTTONDOWN = 0x00A1;
     public const int WM_SIZE = 0x0005;
     public const int WM_SETFOCUS = 0x0007;
@@ -40,6 +41,13 @@ static class NativeMethods
 
     // ── Hit-test result codes ────────────────────────────────────────────────
     public const int HTCAPTION = 2; // used only for the native drag (WM_NCLBUTTONDOWN)
+    // Top-edge sizing codes: since WM_NCCALCSIZE reclaimed the top inset as client, the OS no longer
+    // reports a top resize border, so WndProc synthesizes these for a thin top band + its corners.
+    public const int HTLEFT = 10;
+    public const int HTRIGHT = 11;
+    public const int HTTOP = 12;
+    public const int HTTOPLEFT = 13;
+    public const int HTTOPRIGHT = 14;
 
     [DllImport("user32.dll")]
     public static extern bool ReleaseCapture();

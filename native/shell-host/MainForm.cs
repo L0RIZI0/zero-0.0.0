@@ -269,13 +269,31 @@ sealed class MainForm : Form
             base.WndProc(ref m);
 
             // …then hand the whole top inset back to the client. Left/right/bottom insets are left as the
-            // default proc set them, so those edges + all corners stay natively resizable. (Only the very
-            // top edge loses its resize grip — an accepted trade for a clean borderless top.)
+            // default proc set them, so those edges + all corners stay natively resizable. The top edge's
+            // resize grip is restored separately via the synthesized WM_NCHITTEST band below.
             var rc = System.Runtime.InteropServices.Marshal.PtrToStructure<NativeMethods.RECT>(m.LParam);
             rc.top = windowTop;
             System.Runtime.InteropServices.Marshal.StructureToPtr(rc, m.LParam, false);
             m.Result = nint.Zero;
             return;
+        }
+
+        // Top-edge resize: WM_NCCALCSIZE reclaimed the top inset as client, so the OS hit-test returns
+        // HTCLIENT there and never HTTOP — leaving the top edge non-resizable (the left/right/bottom
+        // borders are still real non-client frame, so the OS handles those itself). Synthesize HTTOP /
+        // HTTOPLEFT / HTTOPRIGHT for a thin DPI-scaled band along the top so top + top-corner sizing work
+        // again, without reintroducing a visible frame. Only in the Normal state (not maximized/fullscreen).
+        if (m.Msg == NativeMethods.WM_NCHITTEST && !_fullscreen && WindowState == FormWindowState.Normal)
+        {
+            var p = PointToClient(new Point(NativeMethods.LoWord(m.LParam), NativeMethods.HiWord(m.LParam)));
+            int grip = (int)Math.Round(6 * DeviceDpi / 96.0);
+            if (p.Y >= 0 && p.Y < grip)
+            {
+                if (p.X < grip) { m.Result = NativeMethods.HTTOPLEFT; return; }
+                if (p.X >= ClientSize.Width - grip) { m.Result = NativeMethods.HTTOPRIGHT; return; }
+                m.Result = NativeMethods.HTTOP;
+                return;
+            }
         }
 
         // Spatial input: visual hosting delivers NO mouse/wheel to the controller automatically, so we
