@@ -14,9 +14,9 @@ namespace Zero.ShellHost;
 //      CreateDispatcherQueueController (CoreMessaging.dll).
 //
 //   2. A DesktopWindowTarget that binds a composition visual tree to our HWND. That is obtained through
-//      the ICompositorDesktopInterop COM interface on the Compositor, then its Root is set via
-//      ICompositionTarget. Both are declared here as raw COM interfaces (the widely-used Win32-Samples
-//      pattern) rather than relying on CsWinRT ABI helpers, which are fussy to get right blind.
+//      the ICompositorDesktopInterop COM interface, which we QI off the Compositor via CsWinRT's
+//      CastExtensions.As<T>() (a direct C# cast throws InvalidCastException under CsWinRT — the projected
+//      Compositor is not a classic COM RCW), then marshal the returned target with MarshalInspectable<T>.
 //
 // This whole file exists ONLY because we need real alpha blending between the shell layer and browsed
 // content (M2.2+). WebView2 supports transparency exclusively in visual/composition hosting — a plain
@@ -70,7 +70,11 @@ internal static class CompositionInterop
     /// Create a DesktopWindowTarget that hosts `compositor`'s visual tree in `hwnd`.
     public static DesktopWindowTarget CreateDesktopWindowTarget(Compositor compositor, IntPtr hwnd, bool isTopmost)
     {
-        var interop = (ICompositorDesktopInterop)(object)compositor;
+        // A direct cast `(ICompositorDesktopInterop)(object)compositor` throws InvalidCastException under
+        // CsWinRT (.NET 5+): the projected Compositor is not a classic COM RCW, so the CLR can't QI it to
+        // a [ComImport] interface. `WinRT.CastExtensions.As<T>()` performs the QueryInterface through the
+        // object's WinRT IObjectReference using the interface's [Guid], which is the supported path.
+        var interop = WinRT.CastExtensions.As<ICompositorDesktopInterop>(compositor);
         interop.CreateDesktopWindowTarget(hwnd, isTopmost, out IntPtr raw);
         try
         {
