@@ -68,8 +68,14 @@ internal sealed class ResourceHost
         _ = WarmAsync();
         async Task WarmAsync()
         {
-            try { await EnvAsync(); _log("content env warmed"); }
-            catch (Exception ex) { _log($"content env warm failed: {ex.Message}"); }
+            // Log the installed Evergreen runtime version: content controllers need the newer
+            // ProfileName API, so this pins down whether an old Surface runtime is why browsed content
+            // fails while the shell (plain composition, older API) still renders.
+            string rt;
+            try { rt = CoreWebView2Environment.GetAvailableBrowserVersionString() ?? "none"; }
+            catch (Exception ex) { rt = "query-failed: " + ex.Message; }
+            try { await EnvAsync(); _log($"content env warmed (webview2 runtime {rt})"); }
+            catch (Exception ex) { _log($"content env warm failed (webview2 runtime {rt}): {ex.Message}"); }
         }
     }
 
@@ -248,11 +254,17 @@ internal sealed class ResourceView : IDisposable
         _pendingNavigate = url;
         const uint E_INVALID_STATE = 0x8007139F;
         const int MaxAttempts = 4;
+        string appliedProfile = profile;
 
         await _createGate.WaitAsync();
         try
         {
-            for (int attempt = 1; attempt <= MaxAttempts && !_disposed; attempt++)
+            // PRIMARY: a per-resource named PROFILE (cookie-jar isolation). This needs a reasonably recent
+            // WebView2 Evergreen runtime (the CoreWebView2ControllerOptions / ProfileName API, ~2022+),
+            // NEWER than the plain composition controller the shell uses — so on an old runtime the shell
+            // still renders while THIS path throws. Retry only the transient overlap error; any other
+            // failure (e.g. API unsupported) abandons the profile path and drops to the fallback below.
+            for (int attempt = 1; attempt <= MaxAttempts && !_disposed && _controller is null; attempt++)
             {
                 try
                 {
@@ -260,20 +272,41 @@ internal sealed class ResourceView : IDisposable
                     opts.ProfileName = profile;
                     opts.IsInPrivateModeEnabled = false;
                     _controller = await env.CreateCoreWebView2CompositionControllerAsync(_hwnd, opts);
+                }
+                catch (COMException ce) when ((uint)ce.HResult == E_INVALID_STATE && attempt < MaxAttempts && !_disposed)
+                {
+                    _log($"resource create attempt {attempt} id={_id} hr=0x{(uint)ce.HResult:X8} invalidState=true; retrying");
+                    await Task.Delay(150 * attempt);
+                }
+                catch (Exception ex) when (!_disposed)
+                {
+                    uint hr = ex is COMException c ? (uint)c.HResult : 0;
+                    _log($"resource create id={_id} profile path failed hr=0x{hr:X8} msg=\"{ex.Message}\"; " +
+                        "falling back to default profile (older runtime?)");
                     break;
                 }
-                catch (COMException ce) when (attempt < MaxAttempts && !_disposed)
+            }
+
+            // FALLBACK: no options → the DEFAULT (shared) profile. Loses per-resource cookie isolation but
+            // still shows browsed content on runtimes that only support plain composition controllers.
+            if (_controller is null && !_disposed)
+            {
+                try
                 {
-                    _log($"resource create attempt {attempt} id={_id} hr=0x{(uint)ce.HResult:X8} " +
-                        $"invalidState={(uint)ce.HResult == E_INVALID_STATE} msg=\"{ce.Message}\"; retrying");
-                    await Task.Delay(150 * attempt);
+                    _controller = await env.CreateCoreWebView2CompositionControllerAsync(_hwnd);
+                    appliedProfile = "(default)";
+                }
+                catch (Exception ex) when (!_disposed)
+                {
+                    _log($"resource create id={_id} default-profile fallback ALSO failed msg=\"{ex.Message}\"");
                 }
             }
         }
         finally { _createGate.Release(); }
 
         if (_disposed) { _controller?.Close(); _controller = null; return; }
-        if (_controller is null) throw new InvalidOperationException("controller creation returned null after retries");
+        if (_controller is null) throw new InvalidOperationException("controller creation returned null after retries + fallback");
+        profile = appliedProfile;
 
         // Frontmost layer ⇒ content paints OVER the shell (content-on-top parity).
         _layer = _comp.AddLayer();
@@ -338,7 +371,7 @@ internal sealed class ResourceView : IDisposable
         catch { }
     }
 
-    // ── commands (desired-state safe before the controller exists) ──
+    // ─�� commands (desired-state safe before the controller exists) ──
     public void SetBounds(Rectangle px, bool visible)
     {
         _boundsPx = px;

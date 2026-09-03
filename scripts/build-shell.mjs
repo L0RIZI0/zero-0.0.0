@@ -22,8 +22,27 @@ import path from "node:path"
 
 const root = process.cwd()
 const VPK_VERSION = "1.2.0" // MUST match the Velopack NuGet ref in ShellHost.csproj
-const VERSION = String(process.argv[2] || JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version)
-  .replace(/^v/, "")
+
+// Version priority: explicit arg → CI release tag → local `git describe` tag → package.json. The app's
+// TRUE version is the `v*` git tag (lib/zero/version.ts / app.getVersion()), NOT package.json — which
+// stays at its default (0.1.0) locally and is only stamped from the tag on CI. So a LOCAL `pnpm
+// shell:pack` must read the tag itself, otherwise the Velopack feed ships 0.1.0 and every real update
+// looks OLDER than what's installed. Strip a leading `v`; Velopack/NuGet want a bare SemVer.
+function resolveVersion() {
+  if (process.argv[2]) return process.argv[2]
+  if (process.env.GITHUB_REF_NAME) return process.env.GITHUB_REF_NAME // CI: the pushed tag
+  try {
+    const tag = execFileSync("git", ["describe", "--tags", "--abbrev=0", "--match", "v*"], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim()
+    if (tag) return tag
+  } catch {
+    /* no tags / not a git checkout → fall through */
+  }
+  return JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version
+}
+const VERSION = String(resolveVersion()).replace(/^v/, "")
 
 const shellDir = path.join(root, "native", "shell-host")
 const publishDir = path.join(shellDir, "publish")
