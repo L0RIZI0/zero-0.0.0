@@ -10,9 +10,9 @@
 //
 // M1 implements the CHEAP, no-content half: win.*, openExternal, locale, appVersion,
 // system.getIdleSeconds, webTitle, debugLog(+Path). M2.2 wires resource.* to the in-process composition
-// content host (mount/setBounds/park/close/theme + status/navigated/activity events). menu.*/updates.*
-// remain SAFE stubs (resolved promises / no-op subscriptions) so the renderer feature-detects until
-// M3–M4 fill them in.
+// content host (mount/setBounds/park/close/theme + status/navigated/activity events). M4 wires updates.*
+// to the Velopack auto-updater (UpdateService.cs). menu.* remains a SAFE stub until M3 so the renderer
+// feature-detects it.
 // ---------------------------------------------------------------------------
 ;(() => {
   // Synchronous constants baked in by the host (matches the preload's sendSync reads).
@@ -117,14 +117,17 @@
       onSelected: () => () => {},
     },
 
-    // ── M4 anchor: Velopack update lifecycle. Stub until packaging lands. ──
+    // ── M4: Velopack auto-update (see UpdateService.cs). The shell downloads + stages silently in the
+    //    background and fires `updates.downloaded` when a build is READY (the pill then shows "restart
+    //    for vX"); `restartToApply` does a near-instant folder-swap relaunch. onAvailable/onProgress are
+    //    wired but unused by the silent flow — kept for feature-detection + future modes. ──
     updates: {
-      onAvailable: () => () => {},
-      onProgress: () => () => {},
-      onDownloaded: () => () => {},
-      onError: () => () => {},
-      startDownload: () => {},
-      restartToApply: () => {},
+      onAvailable: (cb) => on("updates.available", cb),
+      onProgress: (cb) => on("updates.progress", cb),
+      onDownloaded: (cb) => on("updates.downloaded", cb),
+      onError: (cb) => on("updates.error", cb),
+      startDownload: () => send("updates.start-download"),
+      restartToApply: () => send("updates.restart-to-apply"),
     },
   }
 

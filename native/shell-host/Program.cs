@@ -1,4 +1,5 @@
 using System.Windows.Forms;
+using Velopack;
 
 namespace Zero.ShellHost;
 
@@ -14,6 +15,12 @@ static class Program
     [STAThread]
     static void Main()
     {
+        // MUST be the first thing that runs. On an installed build this handles Velopack's install/
+        // update/uninstall hooks (e.g. the brief `--veloapp-*` invocations during a folder-swap update)
+        // and then returns immediately for a normal launch. On an unpackaged dev run (`dotnet run`) it's
+        // a no-op. Nothing UI may run before it. See UpdateService.cs for the runtime update lifecycle.
+        VelopackApp.Build().Run();
+
         // High-DPI mode (PerMonitorV2) is configured via <ApplicationHighDpiMode> in the csproj, which
         // ApplicationConfiguration.Initialize() applies; the app.manifest declares the matching process
         // DPI awareness that actually governs WebView2 scaling. Nothing to set imperatively here.

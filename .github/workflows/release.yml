@@ -1,12 +1,18 @@
 # Builds the Zero Windows desktop app and publishes it to the public Vercel Blob
-# "update feed" that the app's electron-updater polls. Triggered ONLY when you push
-# a version tag, e.g.:
+# "update feed(s)". Triggered ONLY when you push a version tag, e.g.:
 #
 #   git tag v0.2.0 && git push origin v0.2.0
 #
-# The installed Surface app checks the feed on launch, downloads any newer version in
-# the background, and applies it on the next restart. Data is never touched (the app
-# stays on the app://local origin regardless of version).
+# TWO apps ship from one tag while the WebView2 migration is in flight (M4, coexistence):
+#   • the Electron app  → NSIS installer, electron-updater feed at  /updates
+#   • the WebView2 shell → Velopack installer, UpdateManager feed at /updates-shell
+# The feeds are SEPARATE prefixes in the same public store, each pruned independently, so
+# they never clobber each other. Once the shell is verified on the Surface, the Electron
+# steps (and electron/) get deleted and only the shell feed remains.
+#
+# The installed Surface app checks its feed on launch, downloads any newer version in the
+# background, and applies it (Velopack: near-instant folder-swap relaunch). Data is never
+# touched (the app stays on its stable origin regardless of version).
 #
 # Required repo config (Settings → Secrets and variables → Actions):
 #   • Secret   BLOB_READ_WRITE_TOKEN  – write token for the PUBLIC Blob store
@@ -74,3 +80,28 @@ jobs:
         env:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
         run: pnpm release:upload
+
+      # ── WebView2 shell (M4): built + published BESIDE the Electron app until the cutover. ──
+      # The static export `out/` already exists from electron:build:ci above, so shell:pack reuses it
+      # (it re-runs the export harmlessly-fast if not). vpk packs the self-contained shell into a
+      # Velopack installer + feed, uploaded to the SEPARATE public "updates-shell" prefix so it never
+      # touches the Electron "/updates" feed.
+      - name: Install Velopack CLI (vpk)
+        run: dotnet tool install -g vpk --version 1.2.0
+
+      - name: Build Zero shell (Velopack)
+        run: pnpm shell:pack
+
+      - name: Upload shell update feed to Blob
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+        run: pnpm shell:release:upload
+
+      # The one-time bootstrap installer humans grab for the FIRST Surface install (later updates are
+      # automatic from the feed). Also on the public feed, but exposing it as a CI artifact is handier.
+      - name: Publish shell Setup.exe as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zero-shell-Setup
+          path: release-shell/*Setup.exe
+          if-no-files-found: warn

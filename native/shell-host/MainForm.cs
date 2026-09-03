@@ -33,6 +33,9 @@ sealed class MainForm : Form
     //   _mouseCaptureTarget = view (or shell=null) that received a button-down, held until button-up so a
     //                         drag keeps going to it even if the cursor leaves its rect
     private ResourceHost? _resources;
+
+    // M4: silent background auto-updater (Velopack). Null on unpackaged dev runs.
+    private UpdateService? _updates;
     private ResourceView? _prevMouseTarget;
     private ResourceView? _mouseCaptureTarget;
     private bool _mouseCaptured;
@@ -141,6 +144,11 @@ sealed class MainForm : Form
 
             // Give the freshly-created controller keyboard focus (the form already has OS focus on load).
             try { _shell.MoveFocus(CoreWebView2MoveFocusReason.Programmatic); } catch { }
+
+            // Kick off the background auto-updater. Events must reach WebView2 on the UI thread, so hand
+            // the service a marshalling emit. Idle no-op on dev builds (UpdateService checks IsInstalled).
+            _updates = new UpdateService(PushEventOnUi, LogLine);
+            _updates.Start();
         }
         catch (Exception ex)
         {
@@ -183,6 +191,10 @@ sealed class MainForm : Form
                 case "resource.release-focus": GiveWebFocus(); break; // keyboard back to Zero's own UI
                 case "resource.set-theme": ResourceSetTheme(msg.args); break;
 
+                // ── M4 auto-update (send) ───────────────────────────────────
+                case "updates.start-download": _updates?.StartDownload(); break;
+                case "updates.restart-to-apply": _updates?.RestartToApply(); break;
+
                 // ── request/response (invoke) ───────────────────────────────
                 case "win.is-maximized": Reply(msg.id, WindowState == FormWindowState.Maximized); break;
                 case "win.is-fullscreen": Reply(msg.id, _fullscreen); break;
@@ -219,6 +231,18 @@ sealed class MainForm : Form
 
     private void PushEvent(string channel, object? payload)
         => PostJson(new { kind = "event", channel, payload });
+
+    // Marshalled PushEvent for callers on background threads (the Velopack updater). WebView2's
+    // PostWebMessageAsJson must run on the UI thread; hop there when needed.
+    private void PushEventOnUi(string channel, object? payload)
+    {
+        try
+        {
+            if (IsHandleCreated && InvokeRequired) BeginInvoke(new Action(() => PushEvent(channel, payload)));
+            else PushEvent(channel, payload);
+        }
+        catch { /* handle gone / shutting down */ }
+    }
 
     private void PostJson(object o)
     {

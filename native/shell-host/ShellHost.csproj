@@ -51,6 +51,9 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.*" />
+    <!-- M4: Velopack replaces electron-updater. Pinned (not floating) for reproducible release builds,
+         matching the vpk CLI version the packaging script installs (scripts/build-shell.mjs). -->
+    <PackageReference Include="Velopack" Version="1.2.0" />
   </ItemGroup>
 
   <!-- Ship the injected shim next to the exe so it can be iterated without a full rebuild. -->

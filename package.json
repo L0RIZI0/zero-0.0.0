@@ -17,7 +17,9 @@
     "shell:export": "node scripts/gen-interaction-matrix.mjs && node scripts/electron-build.mjs",
     "electron:build": "node scripts/gen-interaction-matrix.mjs && node scripts/electron-build.mjs && node scripts/build-resource-host.mjs && electron-builder",
     "electron:build:ci": "node scripts/gen-interaction-matrix.mjs && node scripts/electron-build.mjs && node scripts/build-resource-host.mjs && electron-builder --win nsis --publish never",
-    "release:upload": "node scripts/upload-release.mjs"
+    "release:upload": "node scripts/upload-release.mjs",
+    "shell:pack": "node scripts/gen-interaction-matrix.mjs && node scripts/electron-build.mjs && node scripts/build-shell.mjs",
+    "shell:release:upload": "node scripts/upload-shell-release.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
