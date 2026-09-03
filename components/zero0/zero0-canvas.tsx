@@ -89,7 +89,7 @@ import {
   parseRepeatToken,
   type EntryAttr,
 } from "@/lib/zero/create-parse"
-import { applyMarkdownToChildren } from "@/lib/zero/entity-markdown"
+import { applyMarkdownToChildren, type MarkdownBaseline } from "@/lib/zero/entity-markdown"
 import { cropTitle, looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webLabel } from "@/lib/zero/web-resources"
 import { useZero0Flag, toggleZero0Flag } from "@/lib/zero/zero0-chord"
 import { useZeroCrossWindowSync } from "@/lib/zero/use-zero-sync"
@@ -526,6 +526,9 @@ export function Zero0Canvas() {
   // §4 PINS — a strict show/hide toggle (v0.2.228): this flag alone controls the band's
   // visibility, like every other § frame. Ongoing chips populate it live while it's open.
   const showFrequent = useZero0Flag("frequent")
+  // §5 CREATE FIELD — the main create input. Hidden by default now that entities are created via
+  // markdown lines; this flag force-reveals it (also has a footer toggle).
+  const showCreateField = useZero0Flag("createField")
 
   useEffect(() => {
     hydrateFromStorage()
@@ -2027,11 +2030,11 @@ export function Zero0Canvas() {
     [bump],
   )
 
-  // Zoom-out commit of an entity's markdown "code view" → reconcile children (rename/recolor/
-  // create; never deletes in v1), then re-render so the rows reflect the edited file.
+  // Zoom-out commit of an entity's markdown "code view" → reconcile children against the open-time
+  // snapshot (rename/recolor/create, UNLINK removed lines, reorder to line order), then re-render.
   const applyMarkdown = useCallback(
-    (targetContextId: string, text: string) => {
-      applyMarkdownToChildren(targetContextId, text)
+    (targetContextId: string, text: string, baseline?: MarkdownBaseline) => {
+      applyMarkdownToChildren(targetContextId, text, baseline)
       bump()
     },
     [bump],
@@ -2765,8 +2768,10 @@ export function Zero0Canvas() {
         )}
       </div>
 
-      {/* Create field — part of the entity content (you create INTO this context),
-          pinned above the footer helper. Bare mono input, hairline top. */}
+      {/* Create field — part of the entity content (you create INTO this context), pinned above
+          the footer helper. HIDDEN by default (§5) now that entities are made via markdown lines;
+          footer "create" toggle + §5 bring it back. Bare mono input, hairline top. */}
+      {showCreateField && (
       <div className="border-t border-border px-4 py-2">
         <div className="flex items-baseline gap-2 text-[11px]">
           <span className="text-muted-foreground" aria-hidden>
@@ -2819,6 +2824,7 @@ export function Zero0Canvas() {
           </p>
         )}
       </div>
+      )}
 
       {/* ── BOTTOM HELPER ────────────────────────────────────────────────────��─
           Zero-UX chrome: version switch + theme toggle. */}
@@ -2857,6 +2863,20 @@ export function Zero0Canvas() {
           }
         >
           activity
+        </button>
+        {/* CREATE FIELD (§5) — off by default; this brings back the main create input for those
+            who'd rather type than edit markdown. */}
+        <button
+          type="button"
+          onClick={() => toggleZero0Flag("createField")}
+          aria-pressed={showCreateField}
+          className={
+            showCreateField
+              ? "text-foreground transition-colors"
+              : "text-muted-foreground transition-colors hover:text-foreground"
+          }
+        >
+          create
         </button>
         <span className="text-border" aria-hidden>
           |

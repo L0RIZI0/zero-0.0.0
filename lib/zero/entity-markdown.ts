@@ -35,8 +35,11 @@
 
 import {
   addParsedEntity,
+  detachChildFromContext,
   getChildren,
+  getEntity,
   renameEntity,
+  reorderContextItems,
   setEntityAccent,
   setEntityCancelled,
   setEntityDescription,
@@ -77,6 +80,21 @@ export interface ApplyMarkdownResult {
   changed: number
   /** Lines whose prefix named a different kind than the existing child (ignored in v1). */
   ignoredKindChange: number
+  /** Children whose line was REMOVED → unlinked from this body (entity kept). */
+  unlinked: number
+}
+
+/**
+ * The snapshot captured when the markdown code view OPENS — the ordered child ids and the exact
+ * serialized line for each, aligned 1:1 (`ids[i]` ↔ `lines[i]`). Reconcile uses it to give every
+ * line a stable IDENTITY without polluting the file with visible id tokens: an unchanged line still
+ * maps to its child (so a reorder is a reorder, not N edits), a vanished line means "unlink that
+ * child", and a brand-new line means "create". Without it, apply falls back to the old positional
+ * reconcile (which can only rename/create, never remove or reorder).
+ */
+export interface MarkdownBaseline {
+  ids: string[]
+  lines: string[]
 }
 
 // ── Serialize ─────────────────────────────────────────────────────────────────
@@ -315,28 +333,150 @@ function applyEntryFields(entity: Entity, entry: EntryParse, clearAbsent: boolea
 }
 
 /**
- * Reconcile an edited markdown file back into the children graph — the zoom-OUT commit.
- * POSITIONAL: entity-ref line i maps to existing child i (in `getChildren` order). Extra lines
- * CREATE children (honoring their prefix); FEWER lines KEEP the remaining children (never deletes);
- * a changed KIND on an existing child is IGNORED. All field edits flow through {@link applyEntryFields}.
+ * Longest common subsequence over two string arrays → a map newIndex→baseIndex for the lines that
+ * are UNCHANGED (byte-identical) between baseline and new text. Classic O(n·m) DP + backtrack. The
+ * match is monotonic in both indices, so it naturally represents "these lines survived, possibly
+ * reordered around" while leaving genuinely added/removed/edited lines as residuals.
  */
-export function applyMarkdownToChildren(id: string, text: string): ApplyMarkdownResult {
-  const lines = parseMarkdown(text)
-  const existing = getChildren(id)
-  const result: ApplyMarkdownResult = { created: 0, changed: 0, ignoredKindChange: 0 }
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    const child = existing[i]
-    if (child) {
-      if (line.kind !== child.kind) result.ignoredKindChange++
-      // Re-read to apply against the freshest scalars (title/schedule may shift mid-loop).
-      if (applyEntryFields(child, line.entry, true)) result.changed++
-    } else {
-      const created = addParsedEntity({ title: line.entry.title, contextId: id, kind: line.kind })
-      applyEntryFields(created, line.entry, false)
-      result.created++
+function lcsMatch(base: string[], next: string[]): Map<number, number> {
+  const n = base.length
+  const m = next.length
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0))
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = base[i] === next[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
     }
   }
+  const out = new Map<number, number>() // next index → base index
+  let i = 0
+  let j = 0
+  while (i < n && j < m) {
+    if (base[i] === next[j]) {
+      out.set(j, i)
+      i++
+      j++
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      i++
+    } else {
+      j++
+    }
+  }
+  return out
+}
+
+/**
+ * Reconcile an edited markdown file back into the children graph — the zoom-OUT commit.
+ *
+ * IDENTITY-BASED when a {@link MarkdownBaseline} snapshot is given (the normal path from the code
+ * view). Each new line is matched to a baseline child so the four intents are distinguished:
+ *   • UNCHANGED line (LCS match) → same child, no field write (byte-identical ⇒ nothing to do);
+ *   • EDITED line → paired with a removed baseline line by residual order → apply field diff;
+ *   • REMOVED line → its baseline child is UNLINKED from this body (kept in the store);
+ *   • NEW line → CREATE a child (honoring its prefix).
+ * Finally the context's sibling ORDER is set to the new line order, so moving lines reorders rows.
+ * A changed KIND on an existing child is still IGNORED (v1 rule).
+ *
+ * POSITIONAL FALLBACK when no baseline is passed: line i → child i, rename/create only, never
+ * removes or reorders (the pre-identity behavior, kept so any other caller stays safe).
+ */
+export function applyMarkdownToChildren(
+  id: string,
+  text: string,
+  baseline?: MarkdownBaseline,
+): ApplyMarkdownResult {
+  const lines = parseMarkdown(text)
+  const result: ApplyMarkdownResult = { created: 0, changed: 0, ignoredKindChange: 0, unlinked: 0 }
+
+  // ── Positional fallback (no snapshot) ─────────────────────────────────────
+  if (!baseline) {
+    const existing = getChildren(id)
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      const child = existing[i]
+      if (child) {
+        if (line.kind !== child.kind) result.ignoredKindChange++
+        if (applyEntryFields(child, line.entry, true)) result.changed++
+      } else {
+        const created = addParsedEntity({ title: line.entry.title, contextId: id, kind: line.kind })
+        applyEntryFields(created, line.entry, false)
+        result.created++
+      }
+    }
+    return result
+  }
+
+  // ── Identity-based reconcile ──────────────────────────────────────────────
+  const baseRaw = baseline.lines.map((s) => s.trim())
+  const newRaw = lines.map((l) => l.raw.trim())
+  const match = lcsMatch(baseRaw, newRaw) // newIndex → baseIndex, for unchanged lines
+
+  // Which child id each new line resolves to (matched / edited / created); drives the final order.
+  const resolved: (string | null)[] = new Array(lines.length).fill(null)
+  const usedBase = new Set<number>()
+  for (const [ni, bi] of match) {
+    resolved[ni] = baseline.ids[bi]
+    usedBase.add(bi)
+  }
+
+  // Residuals: baseline children whose line has no exact match (removed OR edited) and new lines
+  // with no match (created OR edited). We must pair edits to the RIGHT child — a naive by-order
+  // pairing bleeds content across entities when a commit edits one line AND removes another (e.g.
+  // editing a Task while deleting the Space above would rename the SPACE's entity to the Task text).
+  // So pair in two passes.
+  const baseResid = baseline.ids
+    .map((_, i) => i)
+    .filter((i) => !usedBase.has(i))
+    .map((bi) => ({ bi, child: getEntity(baseline.ids[bi]) }))
+  const residualNew = lines.map((_, i) => i).filter((i) => !match.has(i))
+  const consumed = new Set<number>() // indices INTO baseResid that got paired
+
+  const pairInto = (ni: number, x: number) => {
+    consumed.add(x)
+    const child = baseResid[x].child!
+    resolved[ni] = child.id
+    if (lines[ni].kind !== child.kind) result.ignoredKindChange++ // v1: kind swap keeps the entity
+    if (applyEntryFields(child, lines[ni].entry, true)) result.changed++
+  }
+  const stillNew: number[] = []
+
+  // Pass 1 — pair each leftover line to the first unconsumed leftover child of the SAME KIND, in
+  // order. This is the identity-safe pairing: a Task edit can only land on a surviving Task.
+  for (const ni of residualNew) {
+    const x = baseResid.findIndex((r, i) => !consumed.has(i) && r.child && r.child.kind === lines[ni].kind)
+    if (x >= 0) pairInto(ni, x)
+    else stillNew.push(ni)
+  }
+  // Pass 2 — any line still unpaired, paired by ORDER to any remaining live child, is an in-place
+  // KIND SWAP (title/attrs edited and the prefix changed too). Honor the v1 rule: keep the entity,
+  // apply the other fields, ignore the kind change. Leftover beyond that → genuinely new.
+  const finalNew: number[] = []
+  for (const ni of stillNew) {
+    const x = baseResid.findIndex((r, i) => !consumed.has(i) && r.child)
+    if (x >= 0) pairInto(ni, x)
+    else finalNew.push(ni)
+  }
+
+  // Leftover NEW lines → create. (Includes lines whose baseline child vanished from the store.)
+  for (const ni of finalNew) {
+    const line = lines[ni]
+    const created = addParsedEntity({ title: line.entry.title, contextId: id, kind: line.kind })
+    applyEntryFields(created, line.entry, false)
+    resolved[ni] = created.id
+    result.created++
+  }
+
+  // Leftover BASELINE children → their line was removed → unlink from this body (entity kept).
+  baseResid.forEach((r, i) => {
+    if (!consumed.has(i) && detachChildFromContext(baseline.ids[r.bi], id)) result.unlinked++
+  })
+
+  // Reorder this context to the new LINE order. Append any surviving children not represented by a
+  // line (defensive — shouldn't happen since every child serialized to a line) so none are dropped.
+  const orderedIds = resolved.filter((x): x is string => !!x)
+  const remaining = getChildren(id)
+    .map((c) => c.id)
+    .filter((cid) => !orderedIds.includes(cid))
+  reorderContextItems(id, [...orderedIds, ...remaining])
+
   return result
 }

@@ -3102,6 +3102,54 @@ export function moveEntityToContext(entityId: string, newContextId: string): boo
   return true
 }
 
+/**
+ * UNLINK a child from ONE body — the markdown "remove a line" operation (Loris, Sep 2026). A
+ * content line is a REFERENCE to a child; deleting the line drops that reference but KEEPS the
+ * entity alive in the store. Two cases, and both can apply at once:
+ *   • `contextId` is in the child's `taggedContextIds` → remove just that tag (the child stays put
+ *     at its origin and anywhere else it's tagged);
+ *   • `contextId` IS the child's ORIGIN `parentId` → DETACH FULLY: `parentId = null`. The entity
+ *     then matches NO {@link getChildren} query, so it lives loose in the store — reachable only by
+ *     re-linking it via a markdown line elsewhere. (Loris's explicit choice over "pop up a level".)
+ * Also strips the id from the context's saved sibling order, and records a seeded-override patch so
+ * the unlink survives reloads (same pattern as {@link moveEntityToContext}). Returns true if the
+ * membership actually changed.
+ */
+export function detachChildFromContext(childId: string, contextId: string): boolean {
+  const e = byId.get(childId)
+  if (!e) return false
+  let changed = false
+
+  if (e.taggedContextIds?.length) {
+    const kept = e.taggedContextIds.filter((t) => t !== contextId)
+    if (kept.length !== e.taggedContextIds.length) {
+      e.taggedContextIds = kept
+      changed = true
+    }
+  }
+  // Removing the line at the ORIGIN fully detaches (parentId=null → loose in the store).
+  if (e.parentId === contextId) {
+    e.parentId = null
+    changed = true
+  }
+  if (!changed) return false
+
+  // Drop the id from this context's saved order so it doesn't linger as a ghost slot.
+  if (orderByContext[contextId]) {
+    orderByContext[contextId] = orderByContext[contextId].filter((id) => id !== childId)
+  }
+  // Seeded entities record the new membership as an override so the unlink survives a reload.
+  if (!userEntityIds.has(childId)) {
+    seededOverrides.set(childId, {
+      ...seededOverrides.get(childId),
+      parentId: e.parentId,
+      taggedContextIds: e.taggedContextIds,
+    })
+  }
+  persist()
+  return changed
+}
+
 // ----------------------------------------------------------------------------
 // Mutations — user-created entities. Persisted to localStorage so created
 // items survive refreshes. They push into the same `entities` array/index the
@@ -3283,7 +3331,7 @@ const LEGACY_ROOT_ID = "s_root"
  * otherwise dangle. This remaps, in place on the freshly-read {@link UserItems}:
  *   • child `parentId`s pointing at the old root → `"0"` (reattaches the whole subtree);
    *   • id references inside `taggedContextIds` / `inputs` edges;
- *   • the per-context `pins` / `order` maps keyed by (or listing) the old id;
+ *   �� the per-context `pins` / `order` maps keyed by (or listing) the old id;
  *   • an `overrides` patch keyed by the old id (e.g. a renamed/recolored root);
  *   • any `deletedIds` entry.
  * Idempotent and fully no-op once a store has no `"s_root"` left (i.e. every future load).

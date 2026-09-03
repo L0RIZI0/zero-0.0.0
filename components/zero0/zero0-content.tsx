@@ -16,7 +16,7 @@ import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
 import { motion } from "motion/react"
 import { getChildren, getEntity } from "@/lib/zero/data"
   import { isClosed, entityHiddenState } from "@/lib/zero/kinds"
-import { serializeEntityToMarkdown } from "@/lib/zero/entity-markdown"
+import { serializeEntityToMarkdown, type MarkdownBaseline } from "@/lib/zero/entity-markdown"
 import { Zero0Face } from "./zero0-face"
 import { Zero0Glyph } from "./zero0-glyph"
 import type { FaceSize, FaceMake } from "@/lib/zero/face-model"
@@ -80,8 +80,9 @@ export interface Zero0ContentCtx {
   /** Create a child under `contextId` from a raw create-field line (full grammar). */
   createChild: (contextId: string, raw: string) => void
   /** Reconcile `contextId`'s children from an edited markdown "code view" (zoom-out commit),
-      then re-render. See lib/zero/entity-markdown.ts. */
-  applyMarkdown: (contextId: string, text: string) => void
+      then re-render. `baseline` is the id/line snapshot captured when the view OPENED, giving
+      each line a stable identity so removals unlink + reorders reorder. See lib/zero/entity-markdown.ts. */
+  applyMarkdown: (contextId: string, text: string, baseline?: MarkdownBaseline) => void
   /** Persist a drag-and-drop sibling order for `contextId` (full visible order). */
   reorder: (contextId: string, orderedIds: string[]) => void
   /** Move an entity INTO another context (nest it as a child). Returns false (no-op) on
@@ -341,6 +342,9 @@ function ContentDragRoot(props: Zero0ContentProps) {
   const draftRef = useRef("")
   const zoomAccumRef = useRef(0)
   const wrapRef = useRef<HTMLDivElement>(null)
+  // The id/line snapshot captured when the view OPENED — lets the commit give each line a stable
+  // identity (so a removed line unlinks its child + moved lines reorder rows), not a positional guess.
+  const baselineRef = useRef<MarkdownBaseline | null>(null)
   codeViewRef.current = codeView
   draftRef.current = draft
 
@@ -350,13 +354,20 @@ function ContentDragRoot(props: Zero0ContentProps) {
     zoomAccumRef.current = 0
   }, [entity.id])
 
-  // Commit the edited file back into the children graph (rename/recolor/create; never deletes
-  // in v1). Idempotent — positional reconcile means re-applying the same text is a no-op — so
-  // it's safe to call from BOTH blur and zoom-out.
-  const commitDraft = () => ctx.applyMarkdown(entity.id, draftRef.current)
+  // Commit the edited file back into the children graph against the open-time snapshot: rename/
+  // recolor/create, UNLINK removed lines, and reorder to the new line order. Idempotent — an
+  // untouched file matches the baseline line-for-line ⇒ no writes — so it's safe from BOTH blur
+  // and zoom-out.
+  const commitDraft = () => ctx.applyMarkdown(entity.id, draftRef.current, baselineRef.current ?? undefined)
 
   const enterCodeView = () => {
-    setDraft(serializeEntityToMarkdown(entity.id))
+    const text = serializeEntityToMarkdown(entity.id)
+    setDraft(text)
+    // Align ids ↔ lines 1:1 (serialize emits exactly one line per child, in getChildren order).
+    baselineRef.current = {
+      ids: getChildren(entity.id).map((c) => c.id),
+      lines: text === "" ? [] : text.split("\n"),
+    }
     setCodeView(true)
   }
   const exitCodeView = () => {
@@ -393,22 +404,36 @@ function ContentDragRoot(props: Zero0ContentProps) {
 
   if (codeView) {
     const lineCount = draft.split("\n").length
+    const rows = Math.max(3, lineCount + 1)
     return (
       <div ref={wrapRef}>
         <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground/70">
           <span>markdown</span>
           <span aria-hidden>pinch out to close</span>
         </div>
-        <textarea
-          autoFocus
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commitDraft}
-          spellCheck={false}
-          rows={Math.max(3, lineCount + 1)}
-          aria-label={`Markdown source for ${entity.title}`}
-          className="w-full resize-none rounded-sm border border-border bg-card/40 p-2 font-mono text-[11px] leading-relaxed text-foreground caret-foreground outline-none focus:border-border"
-        />
+        {/* Gutter + textarea share the SAME font-mono / text-[11px] / leading-relaxed / py-2 so
+            the numbers sit on their lines. The gutter counts only REAL lines (1…lineCount); the
+            extra trailing row the textarea reserves for typing gets no number. */}
+        <div className="flex rounded-sm border border-border bg-card/40 font-mono text-[11px] leading-relaxed">
+          <div
+            aria-hidden
+            className="shrink-0 select-none border-r border-border/60 py-2 pl-2 pr-2 text-right text-muted-foreground/50 tabular-nums"
+          >
+            {Array.from({ length: lineCount }, (_, i) => (
+              <div key={i}>{i + 1}</div>
+            ))}
+          </div>
+          <textarea
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitDraft}
+            spellCheck={false}
+            rows={rows}
+            aria-label={`Markdown source for ${entity.title}`}
+            className="w-full resize-none bg-transparent py-2 pl-2 pr-2 text-foreground caret-foreground outline-none"
+          />
+        </div>
       </div>
     )
   }

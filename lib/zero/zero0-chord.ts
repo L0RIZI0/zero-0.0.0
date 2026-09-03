@@ -28,7 +28,14 @@ import { useSyncExternalStore } from "react"
 
 /** The visibility flags. Chrome headers + AGENDA default to shown (AGENDA as a minimized
  *  band); ACTIVITY and FREQUENT default to HIDDEN until summoned. */
-export type Zero0Flag = "entityHeader" | "zeroHeader" | "activity" | "agenda" | "frequent" | "readout"
+export type Zero0Flag =
+  | "entityHeader"
+  | "zeroHeader"
+  | "activity"
+  | "agenda"
+  | "frequent"
+  | "readout"
+  | "createField"
 
 // Which digit (pressed after §) toggles which frame. `readout` is intentionally absent.
 const DIGIT_FLAG: Record<string, Zero0Flag> = {
@@ -37,6 +44,7 @@ const DIGIT_FLAG: Record<string, Zero0Flag> = {
   "2": "activity",
   "3": "agenda",
   "4": "frequent",
+  "5": "createField",
 }
 
 /** Reverse map — the § digit that toggles a given flag. Drives the in-frame "§x" corner
@@ -48,7 +56,9 @@ export const FLAG_DIGIT: Partial<Record<Zero0Flag, string>> = Object.fromEntries
 // Chrome headers shown by default; AGENDA also shown (as a minimized band — see the
 // canvas `minimized` init); ACTIVITY stays hidden until toggled.
 const visible: Record<Zero0Flag, boolean> = {
-  entityHeader: true,
+  // §0 ENTITY HEADER — HIDDEN by default (Loris, Sep 2026): the header/overlay is being reworked and
+  // the entity content (rows + markdown) is now the primary surface. Toggle back on with §0.
+  entityHeader: false,
   zeroHeader: true,
   activity: false,
   agenda: true,
@@ -57,6 +67,9 @@ const visible: Record<Zero0Flag, boolean> = {
   // toggled only by §4. HIDDEN by default, so an empty band stays collapsed until summoned.
   frequent: false,
   readout: true,
+  // §5 CREATE FIELD — the main create-entity input. HIDDEN by default now that entities are created
+  // through markdown lines (zoom into an entity's content → add a line). Temporary; toggle with §5.
+  createField: false,
 }
 
 const listeners = new Set<() => void>()
