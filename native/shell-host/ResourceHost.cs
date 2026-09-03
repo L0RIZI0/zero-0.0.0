@@ -222,6 +222,12 @@ internal sealed class ResourceView : IDisposable
     private CoreWebView2CompositionController? _controller;
     private CoreWebView2? _core;
 
+    // Kept so window.open()/OAuth popups (NewWindowRequested) can be hosted from the SAME environment +
+    // cookie jar as this view. _popupProfile is the named profile actually applied, or null when this
+    // view fell back to the default profile (older runtime) — the popup must mirror that choice.
+    private CoreWebView2Environment? _env;
+    private string? _popupProfile;
+
     private double _scale;
     private Rectangle _boundsPx;
     private bool _visible;
@@ -308,6 +314,11 @@ internal sealed class ResourceView : IDisposable
         if (_controller is null) throw new InvalidOperationException("controller creation returned null after retries + fallback");
         profile = appliedProfile;
 
+        // Remember env + profile for OAuth popups. "(default)" is the fallback sentinel (no named profile
+        // was applied), so store null to tell PopupWindow to create without ProfileName options.
+        _env = env;
+        _popupProfile = appliedProfile == "(default)" ? null : appliedProfile;
+
         // Frontmost layer ⇒ content paints OVER the shell (content-on-top parity).
         _layer = _comp.AddLayer();
         _controller.RootVisualTarget = _layer;
@@ -369,6 +380,34 @@ internal sealed class ResourceView : IDisposable
                 "window.addEventListener('wheel',p,{capture:true,passive:true});})();");
         }
         catch { }
+
+        // window.open() / OAuth popups: host them in an owned, foregrounded PopupWindow instead of letting
+        // the default handler spawn an unowned window behind the shell. Deferral because building the
+        // popup's controller is async; e.NewWindow must be set before the deferral completes.
+        core.NewWindowRequested += (_, e) =>
+        {
+            var deferral = e.GetDeferral();
+            _ = OpenPopupAsync(e, deferral);
+        };
+    }
+
+    private async Task OpenPopupAsync(CoreWebView2NewWindowRequestedEventArgs e, CoreWebView2Deferral deferral)
+    {
+        try
+        {
+            if (_env is null || _disposed) return; // no env yet ⇒ leave e.Handled false (default handling)
+            // Share the create gate with content-view creation: two CreateCoreWebView2*ControllerAsync
+            // calls overlapping on one environment throw ERROR_INVALID_STATE.
+            await _createGate.WaitAsync();
+            try
+            {
+                var popup = await PopupWindow.CreateAsync(_env, _popupProfile, _hwnd, e, _log);
+                e.NewWindow = popup;
+            }
+            finally { _createGate.Release(); }
+        }
+        catch (Exception ex) { _log($"oauth popup failed id={_id}: {ex.Message}"); }
+        finally { deferral.Complete(); }
     }
 
     // ─�� commands (desired-state safe before the controller exists) ──

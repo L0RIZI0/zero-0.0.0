@@ -77,6 +77,13 @@ static class NativeMethods
     [DllImport("user32.dll")]
     public static extern nint SetCursor(nint hCursor);
 
+    // Pull an OAuth / window.open() popup to the foreground. An owned Form already z-orders ABOVE the
+    // shell, but Windows foreground rules can leave it unfocused when it's spawned programmatically
+    // (the WebView2 popup-behind-window symptom), so we nudge it explicitly right after Show().
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetForegroundWindow(nint hWnd);
+
     // ── lParam / wParam field extraction (signed short, so off-screen coords stay negative) ──
     public static short LoWord(nint v) => unchecked((short)((long)v & 0xFFFF));
     public static short HiWord(nint v) => unchecked((short)(((long)v >> 16) & 0xFFFF));
