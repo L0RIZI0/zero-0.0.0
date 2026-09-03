@@ -63,6 +63,7 @@ import {
   type EntryParse,
 } from "./create-parse"
 import { isDone } from "./entity-log"
+import { looksLikeUrl, normalizeUrl } from "./web-resources"
 import type { Entity, EntityKind } from "./types"
 
 /** One entity-reference line: its kind prefix + the create-bar parse of everything after it. */
@@ -239,6 +240,18 @@ function applyEntryFields(entity: Entity, entry: EntryParse, clearAbsent: boolea
     const v = attr.get("url")!
     if (v !== (entity.webUrl ?? "")) {
       if (setEntityWebUrl(id, v)) changed = true
+    }
+  } else if (entity.kind === "resource" && looksLikeUrl(entry.title)) {
+    // URL-TITLED RESOURCE with no explicit `--url` (`reso: https://…`). Serialize omits `--url` when it
+    // merely echoes the title, so a resource CREATED or EDITED via a markdown line would otherwise get
+    // an EMPTY `webUrl` and open blank — the create FIELD binds webUrl via looksLikeUrl, but the
+    // markdown `addParsedEntity` path never did (regression once entities could be made from md lines,
+    // v0.2.355). Mirror the create field: bind webUrl from the URL title. Idempotent (url===webUrl → no
+    // change); editing the URL text in the line retargets the resource. Curated (title≠url) resources
+    // emit `--url` and are handled above, so they never reach here.
+    const url = normalizeUrl(entry.title)
+    if (url !== (entity.webUrl ?? "")) {
+      if (setEntityWebUrl(id, url)) changed = true
     }
   }
 
