@@ -36,8 +36,8 @@ internal sealed class PopupWindow : Form
         ShowInTaskbar = false;
         Text = "Zero";
         BackColor = ColorTranslator.FromHtml("#0b0b0c"); // match the shell bg (no white flash pre-nav)
-        Width = 520;
-        Height = 640;
+        MinimumSize = new Size(420, 520);              // never resizable down to an unusable sliver
+        ClientSize = new Size(560, 700);               // CLIENT (webview) area — see ApplyFeatures note
     }
 
     // Build the popup, create its windowed controller (shared env+profile), and hand the fresh
@@ -107,18 +107,27 @@ internal sealed class PopupWindow : Form
     }
 
     // Size/position from the window.open() feature string when the site supplied one, else a sensible
-    // default centered on the shell's monitor work area. Clamped so a hostile/typo'd feature string can't
-    // produce an unusably tiny or off-screen popup.
+    // default centered on the shell's monitor work area.
+    //
+    // ⚠️ WindowFeatures.Width/Height are the CONTENT size the site wants (the JS window.open() contract
+    // is inner dimensions), so they map to ClientSize, NOT the outer form Width/Height. The earlier bug:
+    // assigning them to form.Width/Height let the title bar + borders eat ~30px off the top and ~16px of
+    // width, so Google's requested popup rendered cramped with scrollbars. Setting ClientSize makes the
+    // webview exactly the requested size. Floored generously (many providers request a narrow ~450px box
+    // that's fine on the web but tight in a chromed OS window) and clamped to the monitor work area so a
+    // hostile/typo'd feature string can't make it unusably tiny or larger than the screen.
     private static void ApplyFeatures(PopupWindow form, CoreWebView2WindowFeatures? f, IntPtr ownerHwnd)
     {
-        int w = 520, h = 640;
+        var wa = Screen.FromHandle(ownerHwnd).WorkingArea;
+        int w = 560, h = 700; // default CLIENT size
         if (f is not null && f.HasSize)
         {
-            w = Math.Max(360, (int)f.Width);
-            h = Math.Max(420, (int)f.Height);
+            w = Math.Max(480, (int)f.Width);
+            h = Math.Max(600, (int)f.Height);
         }
-        form.Width = w;
-        form.Height = h;
+        w = Math.Min(w, wa.Width - 80);
+        h = Math.Min(h, wa.Height - 80);
+        form.ClientSize = new Size(w, h);
 
         if (f is not null && f.HasPosition)
         {
@@ -127,9 +136,9 @@ internal sealed class PopupWindow : Form
         }
         else
         {
-            var wa = Screen.FromHandle(ownerHwnd).WorkingArea;
-            form.Left = wa.Left + (wa.Width - w) / 2;
-            form.Top = wa.Top + (wa.Height - h) / 2;
+            // Center the OUTER window (form.Width/Height are set once ClientSize is applied above).
+            form.Left = wa.Left + (wa.Width - form.Width) / 2;
+            form.Top = wa.Top + (wa.Height - form.Height) / 2;
         }
     }
 
