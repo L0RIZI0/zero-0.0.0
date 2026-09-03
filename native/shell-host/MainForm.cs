@@ -134,7 +134,7 @@ sealed class MainForm : Form
             };
 
             // Browsed content lives on composition layers above this shell layer (content-on-top parity).
-            _resources = new ResourceHost(_comp, Handle, DeviceDpi / 96.0, PushEvent, LogLine);
+            _resources = new ResourceHost(_comp, Handle, DeviceDpi / 96.0, PushEvent, LogLine, OnContentCursorChanged);
             _resources.WarmUp(); // overlap the cold content-environment create with shell startup
 
             core.Navigate($"https://{VirtualHost}/index.html");
@@ -322,6 +322,27 @@ sealed class MainForm : Form
             }
         }
 
+        // Cursor over content: web content sets its own cursor (pointer over links, I-beam over text),
+        // but composition hosting never applies it to the host window — so the shell's arrow leaks over
+        // browsed pages. When the OS asks us to set the cursor for the CLIENT area and the pointer is over
+        // a content view, apply that view's HCURSOR and mark the message handled. Over the shell we fall
+        // through to the default arrow — matching Zero's "no link cursors on our own chrome" rule.
+        if (m.Msg == NativeMethods.WM_SETCURSOR && NativeMethods.LoWord(m.LParam) == NativeMethods.HTCLIENT)
+        {
+            var cpt = PointToClient(Cursor.Position);
+            var over = _resources?.HitTest(cpt);
+            if (over is not null)
+            {
+                var hc = over.CurrentCursor;
+                if (hc != IntPtr.Zero)
+                {
+                    NativeMethods.SetCursor(hc);
+                    m.Result = (IntPtr)1; // TRUE: we handled cursor setting, stop default processing
+                    return;
+                }
+            }
+        }
+
         // Spatial input: visual hosting delivers NO mouse/wheel to the controller automatically, so we
         // forward it here. Done BEFORE base so the webview sees the event even if base would swallow it.
         ForwardMouse(ref m);
@@ -484,6 +505,18 @@ sealed class MainForm : Form
     private void GiveWebFocus()
     {
         try { _shell?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic); } catch { }
+    }
+
+    // A content view's cursor changed (e.g. moved onto a link → pointer). WM_SETCURSOR only fires on
+    // mouse-move / boundary crossings, so a cursor change while the pointer is stationary over the page
+    // wouldn't show until the next move. Apply it immediately IF the pointer is currently over that view.
+    private void OnContentCursorChanged(ResourceView view)
+    {
+        if (_resources is null) return;
+        var cpt = PointToClient(Cursor.Position);
+        if (!ReferenceEquals(_resources.HitTest(cpt), view)) return; // pointer isn't over this view
+        var hc = view.CurrentCursor;
+        if (hc != IntPtr.Zero) { try { NativeMethods.SetCursor(hc); } catch { } }
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)

@@ -39,19 +39,22 @@ internal sealed class ResourceHost
     private readonly IntPtr _hwnd;
     private readonly Action<string, object?> _emit; // (channel, payload) → renderer event
     private readonly Action<string> _log;
+    private readonly Action<ResourceView> _onCursorChanged; // content view's cursor changed (hover a link…)
     private readonly Dictionary<string, ResourceView> _views = new();
 
     private Task<CoreWebView2Environment>? _envTask;
     private double _scale;
     private CoreWebView2PreferredColorScheme _scheme = CoreWebView2PreferredColorScheme.Auto;
 
-    public ResourceHost(CompositionHost comp, IntPtr hwnd, double scale, Action<string, object?> emit, Action<string> log)
+    public ResourceHost(CompositionHost comp, IntPtr hwnd, double scale, Action<string, object?> emit,
+        Action<string> log, Action<ResourceView> onCursorChanged)
     {
         _comp = comp;
         _hwnd = hwnd;
         _scale = scale;
         _emit = emit;
         _log = log;
+        _onCursorChanged = onCursorChanged;
     }
 
     public IReadOnlyCollection<ResourceView> Views => _views.Values;
@@ -110,7 +113,7 @@ internal sealed class ResourceHost
             return;
         }
 
-        var view = new ResourceView(id, _comp, _hwnd, _scale, _emit, _log);
+        var view = new ResourceView(id, _comp, _hwnd, _scale, _emit, _log, _onCursorChanged);
         _views[id] = view;
         view.SetBounds(boundsPx, visible);     // desired-state; applied when the controller is ready
         view.SetColorScheme(_scheme);
@@ -207,6 +210,7 @@ internal sealed class ResourceView : IDisposable
     private readonly IntPtr _hwnd;
     private readonly Action<string, object?> _emit;
     private readonly Action<string> _log;
+    private readonly Action<ResourceView> _onCursorChanged;
 
     private ContainerVisual? _layer;
     private CoreWebView2CompositionController? _controller;
@@ -225,9 +229,10 @@ internal sealed class ResourceView : IDisposable
     private static readonly SemaphoreSlim _createGate = new(1, 1);
 
     public ResourceView(string id, CompositionHost comp, IntPtr hwnd, double scale,
-        Action<string, object?> emit, Action<string> log)
+        Action<string, object?> emit, Action<string> log, Action<ResourceView> onCursorChanged)
     {
         _id = id; _comp = comp; _hwnd = hwnd; _scale = scale; _emit = emit; _log = log;
+        _onCursorChanged = onCursorChanged;
     }
 
     public Rectangle BoundsPx => _boundsPx;
@@ -235,6 +240,8 @@ internal sealed class ResourceView : IDisposable
     public bool IsHitVisible => _controller is not null && _visible
         && _boundsPx.Width > 1 && _boundsPx.Height > 1 && _boundsPx.X > -50000;
     public CoreWebView2CompositionController? Controller => _controller;
+    // The webview's current cursor as a Win32 HCURSOR (updated via CursorChanged). Zero = none set yet.
+    public IntPtr CurrentCursor => _controller?.Cursor ?? IntPtr.Zero;
 
     public async Task CreateAsync(CoreWebView2Environment env, string profile, string url)
     {
@@ -290,6 +297,10 @@ internal sealed class ResourceView : IDisposable
             e.Handled = true;
             try { _controller?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic); } catch { }
         };
+
+        // Web content sets its own cursor (pointer over links, I-beam over text, etc.). In visual hosting
+        // that never reaches the host window, so notify MainForm to apply it if the pointer is over us.
+        _controller.CursorChanged += (_, _) => { try { _onCursorChanged(this); } catch { } };
 
         ApplyBounds();
         if (!string.IsNullOrEmpty(_pendingNavigate)) _core.Navigate(_pendingNavigate);

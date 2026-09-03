@@ -21,6 +21,7 @@ static class NativeMethods
     public const int WM_SIZE = 0x0005;
     public const int WM_SETFOCUS = 0x0007;
     public const int WM_DPICHANGED = 0x02E0;
+    public const int WM_SETCURSOR = 0x0020;
 
     // Mouse messages we forward to the composition controller (visual hosting delivers no spatial input
     // automatically). Client coords are in lParam (loword=x, hiword=y) EXCEPT the wheel messages, whose
@@ -40,6 +41,7 @@ static class NativeMethods
     public const int WM_MOUSELEAVE = 0x02A3;
 
     // ── Hit-test result codes ────────────────────────────────────────────────
+    public const int HTCLIENT = 1;  // low word of WM_SETCURSOR lParam when the cursor is over the client
     public const int HTCAPTION = 2; // used only for the native drag (WM_NCLBUTTONDOWN)
     // Top-edge sizing codes: since WM_NCCALCSIZE reclaimed the top inset as client, the OS no longer
     // reports a top resize border, so WndProc synthesizes these for a thin top band + its corners.
@@ -69,6 +71,11 @@ static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT lpEventTrack);
+
+    // Cursor for composition-hosted content: visual hosting does NOT set the host window's cursor from
+    // the webview, so we apply the controller's current HCURSOR ourselves in WM_SETCURSOR.
+    [DllImport("user32.dll")]
+    public static extern nint SetCursor(nint hCursor);
 
     // ── lParam / wParam field extraction (signed short, so off-screen coords stay negative) ──
     public static short LoWord(nint v) => unchecked((short)((long)v & 0xFFFF));
