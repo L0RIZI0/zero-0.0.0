@@ -51,8 +51,18 @@ internal sealed class PopupWindow : Form
     {
         var form = new PopupWindow();
         ApplyFeatures(form, e.WindowFeatures, ownerHwnd);
-        var parent = form.Handle; // realize the HWND before creating the controller into it
 
+        // Show the form BEFORE creating the controller. A WINDOWED WebView2 controller created into a
+        // parent HWND that isn't visible+sized yet can come up not painting until a later resize that
+        // never arrives — which showed up on the Surface as a fully black popup that was correctly
+        // owned/foregrounded but empty. Showing first (owned + foreground) gives the controller a live,
+        // sized parent to render into immediately; the brief pre-controller frame is just the shell-
+        // matched BackColor, so there's no white flash.
+        form.Show(new HwndOwner(ownerHwnd)); // owned ⇒ always z-orders above the shell
+        try { NativeMethods.SetForegroundWindow(form.Handle); } catch { }
+        form.Activate();
+
+        var parent = form.Handle;
         CoreWebView2Controller controller;
         if (profile is null)
         {
@@ -67,9 +77,16 @@ internal sealed class PopupWindow : Form
         }
 
         form._controller = controller;
+        controller.IsVisible = true;
         controller.Bounds = new Rectangle(Point.Empty, form.ClientSize);
 
         var core = controller.CoreWebView2;
+
+        // Diagnostics: if the popup is still blank after this, the log tells us WHY — whether it navigated
+        // at all (window.open('') OAuth patterns start at about:blank then get redirected by the opener),
+        // and whether navigation failed (WebErrorStatus). Cheap; leave in until the flow is confirmed.
+        core.NavigationStarting += (_, ev) => { try { log($"oauth popup nav start uri={ev.Uri}"); } catch { } };
+        core.NavigationCompleted += (_, ev) => { try { log($"oauth popup nav done ok={ev.IsSuccess} status={ev.WebErrorStatus}"); } catch { } };
 
         // OAuth providers close the popup via window.close() once the redirect completes.
         core.WindowCloseRequested += (_, _) => { try { form.Close(); } catch { } };
@@ -84,10 +101,6 @@ internal sealed class PopupWindow : Form
             try { form._controller?.Close(); } catch { }
             form._controller = null;
         };
-
-        form.Show(new HwndOwner(ownerHwnd)); // owned ⇒ always z-orders above the shell
-        try { NativeMethods.SetForegroundWindow(form.Handle); } catch { }
-        form.Activate();
 
         log($"oauth popup opened profile={profile ?? "(default)"} uri={e.Uri}");
         return core;
