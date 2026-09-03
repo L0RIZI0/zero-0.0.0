@@ -1,9 +1,26 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { getWebResource, resolveWebResourceByUrl, webDisplayName, type WebResource } from "@/lib/zero/web-resources"
 import { ResourceGlyph } from "./resource-glyph"
 import { cn } from "@/lib/utils"
+import { readResourceLastUrl, writeResourceLastUrl } from "@/lib/zero/persistence"
+
+/**
+ * Resolve an internal/relative resource URL (e.g. Zero's own "/zero-laws" page) to
+ * an ABSOLUTE URL the native WebContentsView can load. Electron's `loadURL` rejects
+ * a bare path with ERR_INVALID_URL, so a relative URL must be pinned to the app's
+ * own origin — `app://local` in the packaged build, `http://localhost:3000` in dev.
+ * We build it from `protocol` + `host` rather than `location.origin`, because for a
+ * custom scheme like `app:` the origin can serialize to the string "null". Absolute
+ * URLs (https://figma.com, etc.) pass through untouched.
+ */
+function toDesktopUrl(url: string): string {
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) return url
+  if (typeof window === "undefined") return url
+  const { protocol, host } = window.location
+  return `${protocol}//${host}${url.startsWith("/") ? url : `/${url}`}`
+}
 
 /**
  * The body of a RESOURCE TASK — Zero behaving as a contextual browser. It fills the
@@ -12,27 +29,271 @@ import { cn } from "@/lib/utils"
  * design, a resource is a CONTEXT, not a mini-browser — the Task's own header glyph
  * (the resource favicon/monogram) and title already identify it.
  *
- * Two render paths, chosen by the catalog's `mode`:
- *  - "live"          → a real <iframe>. Photopea (and any frame-friendly site) loads
- *                      fully, so you genuinely work and export real files. An unknown
- *                      typed URL is also attempted live.
- *  - "illustrative"  → a branded faux-app stand-in for sites that refuse framing
- *                      (Figma/Notion/Linear). It reads the concept and states it
- *                      "opens natively in the Zero desktop app".
- *
- * In the eventual Electron build the live path swaps to a native WebContentsView with
- * no change here — every resource becomes truly live.
+ * Three render paths:
+ *  - DESKTOP (Electron) → a native WebContentsView (see `NativeSurface`). Loaded as
+ *                         top-level content, so frame-blocking headers don't apply:
+ *                         Figma, Notion, Linear, anything loads LIVE. This is the
+ *                         whole point of the desktop app.
+ *  - WEB · "live"       → a real <iframe>. Photopea (and any frame-friendly site)
+ *                         loads fully so you genuinely work and export real files.
+ *  - WEB · "illustrative" → a branded faux-app stand-in for sites that refuse
+ *                         framing, noting it "opens natively in the Zero desktop app".
  */
-export function ResourceCanvas({ url, resourceId }: { url: string; resourceId?: string }) {
+export function ResourceCanvas({
+  id,
+  url,
+  resourceId,
+  active = true,
+}: {
+  id: string
+  url: string
+  resourceId?: string
+  active?: boolean
+}) {
   const resource = getWebResource(resourceId) ?? resolveWebResourceByUrl(url)
-  const illustrative = resource?.mode === "illustrative"
+  // Feature-detect the desktop bridge once on mount (window.zero is injected by the
+  // Electron preload; undefined in the browser, and during SSR).
+  const [isDesktop, setIsDesktop] = useState(false)
+  // "Resume where I left off": on mount, prefer the last-visited url remembered for
+  // THIS resource (desktop native view only) over the entity's original webUrl.
+  // Computed ONCE at mount so later navigations don't remount the view. Falls back to
+  // `url` in the browser or when nothing is stored. See lib/zero/persistence.ts.
+  const [initialUrl] = useState(() => (typeof window === "undefined" ? url : readResourceLastUrl(id) ?? url))
+  useEffect(() => {
+    const detected = typeof window !== "undefined" && !!window.zero?.isDesktop
+    setIsDesktop(detected)
+  }, [url])
 
+  if (isDesktop) {
+    return (
+      <div className="h-full w-full overflow-hidden bg-card">
+        <NativeSurface
+          id={id}
+          url={initialUrl}
+          resourceId={resourceId}
+          active={active}
+          name={webDisplayName(url, resource?.id)}
+          resource={resource}
+        />
+      </div>
+    )
+  }
+
+  const illustrative = resource?.mode === "illustrative"
   return (
     <div className="h-full w-full overflow-hidden bg-card">
       {illustrative ? (
         <IllustrativeSurface resource={resource!} />
       ) : (
         <LiveSurface url={url} name={webDisplayName(url, resource?.id)} />
+      )}
+    </div>
+  )
+}
+
+/**
+ * DESKTOP path. Renders a transparent PLACEHOLDER and drives a native
+ * WebContentsView (which lives in the Electron main process, floating above the DOM)
+ * to track this placeholder's screen rect. Because the native view isn't part of the
+ * DOM we can't clip/transform it, so we stream its bounds on every layout change
+ * (resize, scroll, and the open/close morph) via rAF, and tear it down on unmount.
+ */
+// Native views can't be GPU-transformed/clipped like the DOM, so during the open
+// morph they'd visibly trail the window. The trick: mount the view IMMEDIATELY but
+// PARKED OFFSCREEN at full size — so the (slow) network load runs concurrently with
+// the open animation — then snap it onto the placeholder the moment the page is
+// dom-ready AND the morph has settled. A blurred branded preview covers the gap.
+const STABLE_FRAMES = 6
+const SETTLE_TIMEOUT_MS = 1600
+// Full-size but pushed far off the left edge: keeps the view loading/painting (no
+// background throttling, unlike a zero-size rect) while staying invisible.
+const hiddenRectOf = (r: { y: number; width: number; height: number }) => ({
+  x: -100000,
+  y: Math.max(0, Math.round(r.y)),
+  width: Math.max(1, Math.round(r.width)),
+  height: Math.max(1, Math.round(r.height)),
+})
+
+function NativeSurface({
+  id,
+  url,
+  resourceId,
+  active,
+  name,
+  resource,
+}: {
+  id: string
+  url: string
+  resourceId?: string
+  active: boolean
+  name: string
+  resource?: WebResource
+}) {
+  const holderRef = useRef<HTMLDivElement>(null)
+  // settling = morph/load in progress (blurred preview shown); live = snapped in.
+  const [phase, setPhase] = useState<"settling" | "live" | "error">("settling")
+  const [detail, setDetail] = useState("")
+  const [retryKey, setRetryKey] = useState(0)
+  const activeRef = useRef(active)
+  activeRef.current = active
+
+  useLayoutEffect(() => {
+    const bridge = window.zero
+    const holder = holderRef.current
+    if (!bridge || !holder) return
+
+    let raf = 0
+    let stable = 0
+    let lastKey = ""
+    let ready = false // page reported dom-ready
+    let revealed = false // native view snapped onto the placeholder
+    let lastSent = ""
+    const start = performance.now()
+
+    const rectOf = () => {
+      // The native view always tracks the DOM placeholder's rect. Edge-to-edge web
+      // fullscreen is achieved by the BODY zeroing its spine/peek padding (see
+      // entity-body.tsx), which grows this placeholder to fill the window body below
+      // the window header — so the header (shrink/close) stays visible and clickable.
+      const r = holder.getBoundingClientRect()
+      return { x: r.x, y: r.y, width: r.width, height: r.height }
+    }
+    const keyOf = (r: { x: number; y: number; width: number; height: number }) =>
+      `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)},${Math.round(r.height)}`
+
+    // Mount NOW, parked offscreen, so the network load begins immediately rather
+    // than waiting for the morph to finish — this is the main latency win. Internal
+    // pages (relative URLs) are resolved to the app origin so loadURL accepts them.
+    bridge.resource.mount({ id, url: toDesktopUrl(url), resourceId, rect: hiddenRectOf(rectOf()) })
+
+    // dom-ready (ok) lets us snap in; failure shows the graceful error overlay.
+    const offStatus = bridge.resource.onStatus((s) => {
+      if (s.id !== id) return
+      if (s.ok) ready = true
+      else {
+        setDetail(s.detail || "")
+        setPhase("error")
+      }
+    })
+
+    // Remember the last page navigated to, so reopening this resource resumes here.
+    // Skip internal app:// pages — those are Zero's own routes (e.g. /zero-laws), not
+    // user browsing, and shouldn't override the resource's identity url.
+    const offNav = bridge.resource.onNavigated?.((n) => {
+      if (n.id !== id || !n.url || n.url.startsWith("app://")) return
+      writeResourceLastUrl(id, n.url)
+    })
+
+    const loop = () => {
+      const rect = rectOf()
+      const key = keyOf(rect)
+      // Track morph stability every frame.
+      if (key === lastKey) stable++
+      else {
+        stable = 0
+        lastKey = key
+      }
+      const settled = stable >= STABLE_FRAMES || performance.now() - start > SETTLE_TIMEOUT_MS
+
+      if (!revealed) {
+        // Snap in only once the page is ready, the morph has settled, and we're the
+        // active leaf — otherwise keep it parked offscreen (still loading).
+        if (ready && settled && activeRef.current && rect.width > 0) {
+          revealed = true
+          lastSent = key
+          bridge.resource.setBounds({ id, rect })
+          setPhase("live")
+        } else {
+          const hk = `hidden:${Math.round(rect.width)}x${Math.round(rect.height)}`
+          if (hk !== lastSent) {
+            lastSent = hk
+            bridge.resource.setBounds({ id, rect: hiddenRectOf(rect) })
+          }
+        }
+      } else {
+        // Live: pin to the placeholder; park offscreen when not the active leaf so
+        // it can't paint over ancestors behind the active one.
+        const onScreen = activeRef.current
+        const sendKey = onScreen ? key : "off"
+        if (sendKey !== lastSent) {
+          lastSent = sendKey
+          bridge.resource.setBounds({ id, rect: onScreen ? rect : hiddenRectOf(rect) })
+        }
+      }
+      raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+
+    return () => {
+      cancelAnimationFrame(raf)
+      offStatus()
+      offNav?.()
+      bridge.resource.unmount(id)
+    }
+  }, [id, url, resourceId, retryKey])
+
+  const covered = phase !== "live" // blurred preview/error sits over the (empty) holder
+
+  return (
+    <div ref={holderRef} className="relative h-full w-full bg-card">
+      {/* Blurred branded preview — visible during the morph + initial load, then
+          fades out as the live native view snaps in. */}
+      <div
+        className={cn(
+          "absolute inset-0 transition-opacity duration-200",
+          covered ? "opacity-100" : "pointer-events-none opacity-0",
+        )}
+        aria-hidden={!covered}
+      >
+        <div className="absolute inset-0 scale-105 opacity-70 blur-[8px]">
+          {resource ? <PreviewSkeleton resource={resource} /> : <div className="h-full w-full bg-muted" />}
+        </div>
+        <div className="absolute inset-0 bg-background/40" />
+        {phase !== "error" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+            <span className="h-10 w-10">
+              <ResourceGlyph resourceId={resource?.id} url={url} />
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-border border-t-foreground" aria-hidden />
+              <p className="text-[13px] text-muted-foreground">{`Loading ${name}…`}</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Graceful failure (e.g. a site that refuses to load) — never a dead white
+          view; offer a retry and an escape hatch to the real browser. */}
+      {phase === "error" && (
+        <div className="absolute inset-0 flex items-center justify-center px-6">
+          <div className="flex max-w-[320px] flex-col items-center gap-3 rounded-xl border border-border bg-popover/95 px-6 py-6 text-center shadow-[0_24px_60px_-24px_rgba(0,0,0,0.5)]">
+            <span className="h-11 w-11">
+              <ResourceGlyph resourceId={resource?.id} url={url} />
+            </span>
+            <p className="text-pretty text-sm font-medium leading-snug">{`${name} couldn't be loaded here`}</p>
+            {detail && <p className="text-pretty text-xs leading-relaxed text-muted-foreground">{detail}</p>}
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setPhase("settling")
+                  setDetail("")
+                  setRetryKey((k) => k + 1)
+                }}
+                className="rounded-md bg-secondary px-3 py-1.5 text-[12px] font-medium text-secondary-foreground transition-colors hover:bg-secondary/80"
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                onClick={() => window.zero?.openExternal(url)}
+                className="rounded-md px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+              >
+                Open in browser
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

@@ -128,26 +128,122 @@ export function resolveWebResourceByUrl(url: string | undefined): WebResource | 
 }
 
 /**
- * Heuristic: does this free-text input look like a URL / bare domain the user
- * means to open (e.g. "www.figma.com", "photopea.com", "https://x.com/path")?
- * Deliberately conservative so ordinary task titles ("Call the bank") never match:
- * requires a single token with a dot and a plausible TLD, or an explicit scheme.
+ * Heuristic: does this free-text input look like a URL / bare domain / internal
+ * Zero route the user means to open (e.g. "www.figma.com", "photopea.com",
+ * "https://x.com/path", or "/vision")? Deliberately conservative so ordinary task
+ * titles ("Call the bank") never match: requires a single whitespace-free token
+ * that is either an explicit scheme, a bare domain with a plausible TLD, or a
+ * root-relative internal path.
  */
 export function looksLikeUrl(input: string): boolean {
   const t = input.trim()
   if (!t || /\s/.test(t)) return false
   if (/^[a-z]+:\/\//i.test(t)) return true
+  // Root-relative path ("/vision", "/zero-laws"): an INTERNAL Zero page. A leading
+  // "/" + word char unambiguously reads as an app route, not a task title, so we
+  // treat it as browsable — normalizeUrl leaves it as-is and it resolves to the
+  // app's own origin at open time (app://local/... on desktop, /... on web).
+  if (/^\/[a-z0-9]/i.test(t)) return true
   // bare domain: label(.label)+ with a 2+ char alpha TLD, optional path/query.
   return /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/[^\s]*)?$/i.test(t) && /\.[a-z]{2,}($|\/)/i.test(t)
 }
 
-/** Normalize a typed URL into a full https URL (adds scheme if missing). */
+/** Normalize a typed URL into a full https URL (adds scheme if missing). Leaves
+ *  root-relative internal paths ("/vision") untouched — they are pinned to the
+ *  app's own origin at open time (see resource-canvas `toDesktopUrl`). */
 export function normalizeUrl(input: string): string {
   const t = input.trim()
+  if (t.startsWith("/")) return t
   return /^[a-z]+:\/\//i.test(t) ? t : `https://${t}`
 }
 
-/** Short display label for a URL — the resource name, else the bare hostname. */
+/** Short display label for a URL — the resource name, else the bare hostname, else
+ *  the root-relative path itself (an internal Zero route like "/vision" has no host,
+ *  so we keep the path, which reads clearly as an app route). */
 export function webDisplayName(url: string, resourceId?: string): string {
-  return getWebResource(resourceId)?.name ?? hostOf(url) ?? url
+  const named = getWebResource(resourceId)?.name
+  if (named) return named
+  if (url.startsWith("/")) return url
+  return hostOf(url) ?? url
+}
+
+/** Displayed web-resource labels (fetched title / raw URL) are cropped to this many chars,
+ *  with the full text available via the hover tooltip. Curated human names are NOT cropped. */
+export const WEB_TITLE_MAX_LEN = 15
+
+/** The FULL (uncropped) displayed title for a web resource — the label shown in ENTITY CONTENT
+ *  + the breadcrumb (paired with the favicon). Preference:
+ *    1. the entity's own `title` WHEN it's a distinct human label (not just the raw URL) — this
+ *       preserves curated seed names like "Interaction Matrix" / catalog names like "Photopea";
+ *    2. the fetched real webpage `<title>` (`webTitle`) whenever we have one — always preferred
+ *       over the raw URL, regardless of URL length;
+ *    3. otherwise the raw URL itself (no fetched title yet).
+ *  `webTitle` is populated best-effort by `/api/web-title` (web) or the desktop IPC bridge. */
+export function webDisplayTitle(opts: {
+  webUrl?: string
+  webResourceId?: string
+  webTitle?: string
+  title?: string
+}): string {
+  const { webUrl, webTitle, title } = opts
+  const own = title?.trim()
+  if (own && own !== webUrl) return own // curated human label, not the raw URL
+  const fetched = webTitle?.trim()
+  if (fetched) return fetched // real page title always wins over the URL
+  return webUrl ?? own ?? "" // no page title yet → the URL itself
+}
+
+/** Crop a label to {@link WEB_TITLE_MAX_LEN} chars, appending an ellipsis when it overflows. */
+export function cropTitle(s: string, max = WEB_TITLE_MAX_LEN): string {
+  const t = s ?? ""
+  return t.length > max ? `${t.slice(0, max).trimEnd()}…` : t
+}
+
+/** Everything a renderer needs to show a web-resource label:
+ *    • `display` — what to render: the fetched-title / raw-URL cropped to {@link WEB_TITLE_MAX_LEN}
+ *      (a curated human name is shown in full, never cropped);
+ *    • `full`    — the full, uncropped chosen label;
+ *    • `tooltip` — a two-line hover string: the full label (when it differs from the URL) then the
+ *      full URL, for a native `title` attribute.
+ *  Single source of truth so ENTITY CONTENT + breadcrumb + siblings menu stay consistent. */
+export function webLabel(opts: { webUrl?: string; webResourceId?: string; webTitle?: string; title?: string }): {
+  display: string
+  full: string
+  tooltip: string
+} {
+  const { webUrl, title } = opts
+  const own = title?.trim()
+  const curated = !!(own && webUrl && own !== webUrl)
+  const full = webDisplayTitle(opts)
+  const display = curated ? full : cropTitle(full)
+  const url = webUrl ?? ""
+  const tooltip = url ? (full && full !== url ? `${full}\n${url}` : url) : full
+  return { display, full, tooltip }
+}
+
+/**
+ * Best-effort REAL favicon for a resource/URL. We resolve the host (catalog domain
+ * first, else the typed URL's host) and fetch its icon through DuckDuckGo's icon
+ * service, which returns the site's ACTUAL favicon — crucially PRESERVING alpha
+ * transparency when the source icon has it (Figma, Linear, Notion, GitHub, …), so on
+ * the dark canvas the mark sits cleanly with no baked-in white plate. (Google's
+ * service always composites onto an opaque white square, which is the white-block
+ * problem in dark mode.) If DuckDuckGo 404s, the glyph retries via
+ * {@link webFaviconFallbackUrl} (Google, always-available but opaque), then the
+ * monogram tile.
+ */
+export function webFaviconUrl(resource: WebResource | undefined, url?: string): string | null {
+  const host = resource?.domains[0] ?? hostOf(url ?? "")
+  if (!host) return null
+  return `https://icons.duckduckgo.com/ip3/${encodeURIComponent(host)}.ico`
+}
+
+/** Always-available opaque fallback (Google S2). Used only when the transparent-friendly
+ *  {@link webFaviconUrl} fails to load. `size` should be the rendered px so it's crisp on
+ *  hi-dpi (request 2× the box). May carry a baked-in white background — the glyph frames
+ *  it on a soft rounded chip so it reads intentional rather than a stray white block. */
+export function webFaviconFallbackUrl(resource: WebResource | undefined, url?: string, size = 64): string | null {
+  const host = resource?.domains[0] ?? hostOf(url ?? "")
+  if (!host) return null
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=${size}`
 }

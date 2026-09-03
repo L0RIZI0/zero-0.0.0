@@ -1,11 +1,14 @@
 "use client"
 
 import { useTheme } from "next-themes"
-import { ShellHeader } from "./shell-header"
 import { WorkSurface } from "./work-surface"
 import { ThemeToggle } from "./theme-toggle"
+import { FpsMeter } from "./fps-meter"
+import { ActivityInspector } from "./activity-inspector"
+import { HierarchyInspector } from "./hierarchy-inspector"
+import { EntityContextMenu } from "./entity-menu"
 import { ZeroNavProvider, useZeroNav } from "@/lib/zero/nav-store"
-import { telescopicSurface } from "@/lib/zero/motion"
+import { telescopicSurface, useMorphTime } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 
 // Inner shell — runs inside ZeroNavProvider so it can read the stack. The whole
@@ -15,21 +18,25 @@ import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 // the work-surface card and there is no seam between them.
 function ZeroShellInner() {
   const { stack } = useZeroNav()
+  // Subscribe the whole Zero tree to BRAT so a `§ 1` morph-time change re-renders
+  // everything, and every component re-reads the live, BRAT-derived transitions
+  // immediately (rather than only on the next interaction-driven render).
+  useMorphTime()
   const { resolvedTheme } = useTheme()
   const isDark = resolvedTheme !== "light"
   const homeSurface = telescopicSurface(0, Math.max(0, stack.length - 1), isDark)
 
   return (
     <main
-      className="flex h-dvh w-full flex-col overflow-hidden"
+      className="relative flex h-dvh w-full flex-col overflow-hidden"
       style={{ backgroundColor: homeSurface, transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}` }}
     >
-      <ShellHeader />
-      {/* No bottom padding: the focus-window region reaches the viewport bottom so an
-          open Space's octagon (and the dock pinned inside its lower wedge) extends all
-          the way down — no home backdrop bleeding below the frame. Side padding stays
-          for the IN/OUT rail breathing room. */}
-      <div className="relative min-h-0 flex-1 px-2 pb-0 sm:px-3">
+      {/* Full-bleed work area — entity0's frame fills it edge to edge. entity0's
+          KIND-SPECIFIC header (avatar/name, time+date, search + zero logo, Dayline) is
+          now rendered IN FLOW as entity0's own first child inside WorkSurface (see
+          IndividualHeader), not as a decoupled overlay here — so the chrome is genuinely
+          the Individual's header, and the window-region starts at its bottom by flow. */}
+      <div className="relative min-h-0 flex-1">
         <WorkSurface />
       </div>
     </main>
@@ -38,9 +45,15 @@ function ZeroShellInner() {
 
 export function ZeroShell() {
   return (
-    <ZeroNavProvider>
+      <ZeroNavProvider>
       <ZeroShellInner />
+      {/* The single app-wide right-click menu. Every surface (do-list, dock, window
+          header, later Resources/dayline) opens it via `nav.openEntityMenu`. */}
+      <EntityContextMenu />
       <ThemeToggle />
+      <FpsMeter />
+      <ActivityInspector />
+      <HierarchyInspector />
     </ZeroNavProvider>
   )
 }

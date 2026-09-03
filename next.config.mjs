@@ -11,6 +11,12 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  // Expose the build target to CLIENT code (inlined at build time). Used to keep
+  // web-preview-only affordances — e.g. the seeded `/matrix-interactions` resource — OUT
+  // of the packaged desktop export, whose shell only ever mounts `/`.
+  env: {
+    NEXT_PUBLIC_ZERO_ELECTRON: isElectron ? "1" : "",
+  },
   // Electron loads files off a custom `app://` protocol, so emit a fully static
   // export with relative asset paths. `output: 'export'` requires the app to be
   // client-renderable end-to-end — Zero already is (client components + local

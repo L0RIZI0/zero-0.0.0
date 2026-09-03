@@ -1,0 +1,19 @@
+{
+  "name": "@zero/dayline-contract",
+  "version": "1.0.0-draft.1",
+  "description": "The shared typed boundary between Zero's model and a dayline view engine. Types only, dependency-free.",
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./sample": "./sample.ts"
+  },
+  "files": [
+    "index.ts",
+    "sample.ts",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "private": true
+}

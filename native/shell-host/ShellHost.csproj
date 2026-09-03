@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- M2: bumped from net8.0-windows to a Windows-10 TFM so the CsWinRT projections for
+         Windows.UI.Composition / Windows.System.DispatcherQueue are available — these are what let us
+         host both the shell and (M2.2+) browsed content as BLENDABLE composition visuals in one window.
+         19041 (2004) is a safe floor: it long predates the Surface's Win11 and every WebView2 runtime. -->
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Zero</AssemblyName>
+    <RootNamespace>Zero.ShellHost</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Version parity with the Electron shell: window.zero.appVersion mirrors Electron's
+         app.getVersion() = package.json "version" (0.1.0). Without this the header showed the .NET
+         assembly default (1.0.0). AppVersion() reads this via AssemblyInformationalVersion. In M4 the
+         Velopack package version becomes authoritative and this stays in lockstep with package.json. -->
+    <Version>0.1.0</Version>
+    <!-- Emitted into ApplicationConfiguration.Initialize() so WinForms-side metrics match the
+         manifest's PerMonitorV2. Setting it here (not via Application.SetHighDpiMode) avoids being
+         overwritten by Initialize()'s own high-DPI call. -->
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <!--
+      Zero's WebView2 SHELL host (Milestone 1 of the "delete Electron, WebView2 everywhere" plan).
+      This is the eventual REPLACEMENT for the Electron shell: a single native process that will render
+      BOTH Zero's own UI (this milestone) AND, from M2, browsed third-party content as composition
+      visuals in the SAME window — dissolving the cross-process compositor seam Electron+resource-host
+      has today. Windows-only. Grows BESIDE Electron until M4 deletes electron/.
+
+      M1 scope: frameless window + custom chrome, serve the Next static export (`out/`) from a virtual
+      host, and reproduce the CHEAP (no-content) half of the `window.zero` contract
+      (types/zero-desktop.d.ts): win.*, openExternal, locale, appVersion, system.getIdleSeconds,
+      webTitle, debugLog(+path). resource.*/menu.*/updates.* are exposed as safe stubs until M2–M4.
+    -->
+  </PropertyGroup>
+
+  <!--
+    Self-contained single-file settings apply ONLY when publishing the shipped shell (one .exe, no .NET
+    install needed) — gated behind ShellPublish so plain `dotnet run`/`dotnet build` stays a fast
+    framework-dependent dev build. The M4 packaging script will pass -p:ShellPublish=true.
+  -->
+  <PropertyGroup Condition="'$(ShellPublish)' == 'true'">
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.*" />
+    <!-- M4: Velopack replaces electron-updater. Pinned (not floating) for reproducible release builds,
+         matching the vpk CLI version the packaging script installs (scripts/build-shell.mjs). -->
+    <PackageReference Include="Velopack" Version="1.2.0" />
+  </ItemGroup>
+
+  <!-- Ship the injected shim next to the exe so it can be iterated without a full rebuild. -->
+  <ItemGroup>
+    <None Update="zero-shim.js" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

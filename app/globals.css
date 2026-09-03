@@ -4,6 +4,45 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* `hover-underline-any` — animated underline on hover, gated on `any-hover` instead of Tailwind
+   v4's default `(hover: hover)`. On touchscreen laptops (e.g. a Surface) the PRIMARY pointer is
+   touch, so `(hover: hover)` is false and stock `hover:underline` silently never fires even
+   with a mouse attached. `(any-hover: hover)` is true whenever ANY connected pointer can hover,
+   so the entity-title underline affordance works there while staying off for touch-only.
+   The line is a `::after` pseudo-element so it can be transformed independently of the text:
+   on hover it FADES IN while sliding down from just above its resting spot; on un-hover it
+   FADES OUT while sliding back UP. `line-through` (cancelled entities) is unaffected since that
+   stays a `text-decoration`. */
+@utility hover-underline-any {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 1px;
+    background-color: currentColor;
+    opacity: 0;
+    transform: translateY(-3px);
+    transition:
+      opacity 180ms ease-out,
+      transform 180ms ease-out;
+    pointer-events: none;
+  }
+  @media (any-hover: hover) {
+    &:hover::after {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    &::after {
+      transition: none;
+    }
+  }
+}
+
 @theme inline {
   --font-heading: var(--font-geist-sans), 'Geist Fallback';
   --font-sans: var(--font-geist-sans), 'Geist Fallback';
@@ -24,6 +63,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
+  --color-excerpt-ink: var(--excerpt-ink);
   --color-muted: var(--muted);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-secondary: var(--secondary);
@@ -66,6 +106,11 @@
   --secondary-foreground: oklch(0.3 0 0);
   --muted: oklch(0.93 0 0);
   --muted-foreground: oklch(0.52 0 0);
+  /* Opaque grey for the spine-excerpt glyphs/counts: this is exactly
+     `muted-foreground` composited at 70% over `background` (sRGB blend), so it
+     matches the old `text-muted-foreground/70` look but WITHOUT sub-1 opacity —
+     so overlapping glyph strokes (e.g. the checkmark tip) no longer darken. */
+  --excerpt-ink: oklch(0.661 0 0);
   --accent: oklch(0.7 0.07 65);
   --accent-foreground: oklch(0.98 0 0);
   --destructive: oklch(0.55 0.16 28);
@@ -97,6 +142,9 @@
   --secondary-foreground: oklch(0.93 0 0);
   --muted: oklch(0.18 0 0);
   --muted-foreground: oklch(0.66 0 0);
+  /* Dark-theme counterpart: `muted-foreground` composited at 70% over the dark
+     `background` (sRGB blend). Opaque, so glyph stroke overlaps don't compound. */
+  --excerpt-ink: oklch(0.514 0 0);
   --accent: oklch(0.7 0.07 65);
   --accent-foreground: oklch(0.12 0 0);
   --destructive: oklch(0.6 0.16 28);
@@ -119,9 +167,42 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Zero is a direct-manipulation prototype: dragging to pan/scroll should never
+       accidentally select timestamps, labels, or chip text. Disable text selection
+       globally and re-enable it only for genuine text-entry surfaces below. */
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  /* Keep real text fields selectable/editable (CaretTextInput, notes, etc.). */
+  input,
+  textarea,
+  [contenteditable="true"],
+  [contenteditable=""] {
+    -webkit-user-select: text;
+    user-select: text;
   }
   html {
     @apply font-sans;
+  }
+}
+
+@layer base {
+  /* APP-WIDE: hide every scrollbar (v0.2.296, Loris ask). A visible scrollbar claims gutter width the
+     instant content overflows, which shoves the whole layout sideways when it appears/disappears — the
+     "everything jumps" Loris disliked. A HIDDEN scrollbar reserves ZERO layout width, so nothing shifts,
+     while wheel / trackpad / drag scrolling all keep working. Applied to every element (incl. html/body)
+     so it covers the entity panel, the do-list, the chat rail, etc. `.no-scrollbar` (below) stays as an
+     explicit opt-in for the horizontal strips, but is now effectively the default. */
+  * {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* legacy Edge/IE */
+  }
+  *::-webkit-scrollbar {
+    /* Chromium/Electron + WebKit — width:0 is belt-and-suspenders alongside display:none so no gutter
+       is ever reserved even if a UA re-enables the track. */
+    width: 0;
+    height: 0;
+    display: none;
   }
 }
 
@@ -144,6 +225,18 @@
   .zero-caret-blink {
     animation: zero-caret-blink 1.4s linear infinite;
   }
+
+  /* OPACITY-only pulse for the currently-ongoing session cell in the §0 START/END rows.
+     A slow, calm breathe (ease-in-out both ways) so the live "ongoing" reads as alive
+     without drawing the eye like a hard blink. Motion-safe: respects reduced-motion. */
+  .zero0-pulse {
+    animation: zero0-pulse 1.8s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .zero0-pulse {
+      animation: none;
+    }
+  }
 }
 
 /* Keyframes MUST live at the top level — defining them inside `@layer utilities`
@@ -157,5 +250,140 @@
   50%,
   100% {
     opacity: 0;
+  }
+}
+
+/* Dock-card OUTLINE settle fade — a gentle fade-in for the rim/border/checkmark the
+   moment a window finishes CLOSING back into its dock slot (keyed remount in
+   entity-node replays it only then). Softens the hard pop of the outline reappearing. */
+@keyframes zero-outline-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes zero0-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* GENTLE glyph breathing for a lingering §4 NOTIFICATION chip — a slow, shallow opacity pulse
+   (never fully dims, unlike the sharper zero0-pulse) so a just-stopped/just-marked entity reads
+   as "recently happened, settling" without shouting. */
+@keyframes zero0-glyph-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+.zero0-glyph-pulse {
+  animation: zero0-glyph-pulse 1800ms ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .zero0-glyph-pulse {
+    animation: none;
+  }
+}
+
+/* §4 chip ENTER / EXIT — a smooth 1.2s opacity fade for any chip appearing in or leaving a
+   §4 list (ongoing punch-in/out, a marked instant's transient "just happened" chip, etc.).
+   Opacity-only so it never fights the FLIP transform on the same wrapper node. */
+@keyframes zero0-chip-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes zero0-chip-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.zero0-chip-in {
+  animation: zero0-chip-in 1200ms ease both;
+}
+.zero0-chip-out {
+  animation: zero0-chip-out 1200ms ease forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .zero0-chip-in,
+  .zero0-chip-out {
+    animation: none;
+  }
+}
+
+/* NOTE: the ONGOING glyph rotation is no longer a CSS animation — it moved to the Web
+   Animations API in zero0-glyph.tsx so the spin can ease IN on start and decelerate OUT
+   to upright on stop (a class toggle can only snap off). */
+
+/* Breadcrumb crumb close (×) — hidden with ZERO layout footprint at rest (no reserved gap),
+   and REVEALED on hover of the crumb (or keyboard focus within it). It animates its WIDTH in,
+   so appearing PUSHES the following "/" + deeper crumbs to the right rather than sitting in a
+   pre-reserved slot; the negative margin cancels the flex gap-1 before it so at rest there's
+   only the original title→"/" spacing. Plain :hover rule on purpose — Tailwind v4 gates
+   hover:/group-hover: behind @media (hover: hover), which fails to fire in embedded webviews /
+   non-fine-pointer environments, leaving the × permanently stuck hidden. */
+.zero0-crumb-close {
+  width: 0;
+  margin-left: -0.25rem;
+  overflow: hidden;
+  opacity: 0;
+  transition:
+    opacity 150ms ease,
+    width 150ms ease,
+    margin-left 150ms ease;
+}
+.zero0-crumb:hover .zero0-crumb-close,
+.zero0-crumb:focus-within .zero0-crumb-close {
+  width: 1rem;
+  margin-left: 0;
+  opacity: 1;
+}
+
+/* Breadcrumb crumb ENTER / EXIT (v0.2.186) — a crumb grows IN (drill deeper) and shrinks OUT
+   (climb out / close / sibling-swap) to its content width, so the trail slides smoothly instead of snapping.
+   The grid-column 1fr↔0fr trick animates to intrinsic (auto) width, which a plain width/transform
+   can't; `.zero0-crumb-inner` clips the content while it collapses. All inter-crumb spacing lives
+   INSIDE the crumb (the leading "/" carries an `ml`), so a collapsed crumb has truly zero footprint
+   — no leftover flex gap to jump. State is set by React (`data-state`); default (stable) = open. */
+.zero0-crumb-wrap {
+  display: grid;
+  grid-template-columns: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-columns 240ms ease,
+    opacity 240ms ease;
+}
+.zero0-crumb-wrap[data-state="entering"],
+.zero0-crumb-wrap[data-state="leaving"] {
+  grid-template-columns: 0fr;
+  opacity: 0;
+  pointer-events: none;
+}
+.zero0-crumb-inner {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .zero0-crumb-wrap {
+    transition: none;
   }
 }

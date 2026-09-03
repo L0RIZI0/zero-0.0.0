@@ -4,32 +4,59 @@
   "private": true,
   "main": "electron/main.cjs",
   "scripts": {
+    "gen:docs": "node scripts/gen-interaction-matrix.mjs",
+    "predev": "node scripts/gen-interaction-matrix.mjs",
+    "prebuild": "node scripts/gen-interaction-matrix.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
     "electron": "electron .",
-    "electron:dev": "concurrently -k -n NEXT,ELECTRON -c blue,magenta \"next dev\" \"wait-on tcp:3000 && electron .\"",
-    "electron:build": "cross-env BUILD_TARGET=electron next build && electron-builder"
+    "electron:dev": "concurrently -k -n NEXT,ELECTRON -c blue,magenta \"cross-env CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true next dev\" \"wait-on tcp:3000 && electronmon .\"",
+    "build:resource-host": "node scripts/build-resource-host.mjs",
+    "shell:export": "node scripts/gen-interaction-matrix.mjs && node scripts/electron-build.mjs",
+    "electron:build": "node scripts/gen-interaction-matrix.mjs && node scripts/electron-build.mjs && node scripts/build-resource-host.mjs && electron-builder",
+    "electron:build:ci": "node scripts/gen-interaction-matrix.mjs && node scripts/electron-build.mjs && node scripts/build-resource-host.mjs && electron-builder --win nsis --publish never",
+    "release:upload": "node scripts/upload-release.mjs",
+    "shell:pack": "node scripts/gen-interaction-matrix.mjs && node scripts/electron-build.mjs && node scripts/build-shell.mjs",
+    "shell:release:upload": "node scripts/upload-shell-release.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/modifiers": "^9.0.0",
+    "@dnd-kit/sortable": "^10.0.0",
     "@vercel/analytics": "1.6.1",
+    "@vercel/blob": "^2.5.0",
+    "ai": "^7.0.6",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "d3-array": "^3.2.4",
+    "d3-scale": "^4.0.2",
+    "d3-time": "^3.1.0",
+    "d3-time-format": "^4.1.0",
+    "electron-updater": "^6.8.9",
     "gsap": "^3.15.0",
+    "koffi": "^3.1.0",
     "lucide-react": "^1.16.0",
     "motion": "^12.40.0",
     "next": "16.2.6",
     "next-themes": "^0.4.6",
     "react": "^19",
     "react-dom": "^19",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "shadcn": "^4.8.0",
     "tailwind-merge": "^3.3.1",
-    "tw-animate-css": "^1.4.0"
+    "tw-animate-css": "^1.4.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.0",
+    "@types/d3-array": "^3.2.2",
+    "@types/d3-scale": "^4.0.9",
+    "@types/d3-time": "^3.0.4",
+    "@types/d3-time-format": "^4.0.3",
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -37,7 +64,9 @@
     "cross-env": "^10.1.0",
     "electron": "^42.4.1",
     "electron-builder": "^26.15.3",
+    "electronmon": "^2.0.4",
     "postcss": "^8.5",
+    "sharp": "^0.35.3",
     "tailwindcss": "^4.2.0",
     "typescript": "5.7.3",
     "wait-on": "^9.0.10"
@@ -49,19 +78,59 @@
       "out/**/*",
       "electron/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "native/resource-host/publish",
+        "to": "resource-host",
+        "filter": ["**/*"]
+      }
+    ],
+    "asarUnpack": [
+      "**/*.node",
+      "node_modules/koffi/**",
+      "node_modules/@koromix/**"
+    ],
     "directories": {
       "output": "release"
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "https://nxge4raka52ini1u.public.blob.vercel-storage.com/updates",
+      "channel": "latest"
     },
     "mac": {
       "target": "dmg",
       "category": "public.app-category.productivity"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "artifactName": "Zero-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false
     },
     "linux": {
       "target": "AppImage",
       "category": "Utility"
     }
+  },
+  "electronmon": {
+    "patterns": [
+      "electron/**/*"
+    ]
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild",
+      "koffi"
+    ],
+    "ignoredBuiltDependencies": [
+      "electron-winstaller",
+      "sharp",
+      "msw"
+    ]
   }
 }

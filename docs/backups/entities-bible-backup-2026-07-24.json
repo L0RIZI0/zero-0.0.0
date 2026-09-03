@@ -1,0 +1,1276 @@
+{
+  "rowIds": [
+    "r-id",
+    "r-glyph",
+    "r-name",
+    "r-family",
+    "r-desc",
+    "r-usecase",
+    "r-creatable",
+    "r-mruyayc3-0",
+    "r-planned",
+    "r-done",
+    "r-mrtotrwz-1",
+    "r-mrv41tu4-2",
+    "r-mrv5t3i9-1",
+    "r-open",
+    "r-terminal",
+    "r-mrv2cw0l-0",
+    "r-mrugx1sq-0",
+    "r-scheduled",
+    "r-mrucnvi5-1",
+    "r-ongoing",
+    "r-donestate",
+    "r-complete",
+    "r-closed",
+    "r-cancelled",
+    "r-enter",
+    "r-glyphclick",
+    "r-play",
+    "r-mark",
+    "r-sources",
+    "r-schedule",
+    "r-mrv48ox3-5",
+    "r-mrugksk3-1",
+    "r-mrv4ad42-6",
+    "r-mrxtlxz8-1"
+  ],
+  "colIds": [
+    "c-field",
+    "c-entity",
+    "c-4",
+    "c-3",
+    "c-2",
+    "c-1",
+    "c-facet",
+    "c-0",
+    "c-6",
+    "c-7",
+    "c-5",
+    "c-soul"
+  ],
+  "cells": {
+    "r-glyph::c-field": {
+      "html": "<span class=\"v0e\" style=\"\">Glyph</span>"
+    },
+    "r-glyph::c-0": {
+      "glyph": "space"
+    },
+    "r-glyph::c-1": {
+      "glyph": "task"
+    },
+    "r-glyph::c-2": {
+      "glyph": "resource"
+    },
+    "r-glyph::c-3": {
+      "glyph": "moment"
+    },
+    "r-glyph::c-4": {
+      "glyph": "instant"
+    },
+    "r-glyph::c-5": {
+      "glyph": "individual"
+    },
+    "r-glyph::c-6": {
+      "glyph": "organism"
+    },
+    "r-glyph::c-7": {
+      "glyph": "community"
+    },
+    "r-name::c-field": {
+      "html": "<span class=\"v0e\">Name</span>"
+    },
+    "r-name::c-0": {
+      "html": "The <span class=\"v0e\">Space</span>"
+    },
+    "r-name::c-1": {
+      "html": "The <span class=\"v0e\">Task</span>"
+    },
+    "r-name::c-2": {
+      "html": "The <span class=\"v0e\">Resource</span>"
+    },
+    "r-name::c-3": {
+      "html": "The <span class=\"v0e\">Moment</span>"
+    },
+    "r-name::c-4": {
+      "html": "The <span class=\"v0e\">Instant</span>"
+    },
+    "r-name::c-5": {
+      "html": "The <span class=\"v0e\">Individual</span>"
+    },
+    "r-name::c-6": {
+      "html": "The <span class=\"v0e\">Organism</span>"
+    },
+    "r-name::c-7": {
+      "html": "The <span class=\"v0e\">Community</span>"
+    },
+    "r-id::c-field": {
+      "html": "<span class=\"v0e\">ID</span>"
+    },
+    "r-id::c-0": {
+      "html": "6"
+    },
+    "r-id::c-1": {
+      "html": "4"
+    },
+    "r-id::c-2": {
+      "html": "3"
+    },
+    "r-id::c-3": {
+      "html": "2"
+    },
+    "r-id::c-4": {
+      "html": "1"
+    },
+    "r-id::c-5": {
+      "html": "9"
+    },
+    "r-id::c-6": {
+      "html": "7"
+    },
+    "r-id::c-7": {
+      "html": "8"
+    },
+    "r-desc::c-field": {
+      "html": "<span class=\"v0e\" style=\"\">Description</span>"
+    },
+    "r-desc::c-0": {
+      "html": "<span class=\"v0e\">A context</span>, something<span class=\"v0e\"> that holds things</span>"
+    },
+    "r-desc::c-1": {
+      "html": "Something to do"
+    },
+    "r-desc::c-2": {
+      "html": "<span class=\"v0e\">An asset,</span> a<span class=\"v0e\"> reference,&nbsp;</span>a<span class=\"v0e\"> tool</span>"
+    },
+    "r-desc::c-3": {
+      "html": "<span class=\"v0e\">A span in time</span>"
+    },
+    "r-desc::c-4": {
+      "html": "<span class=\"v0e\">A point in time</span>"
+    },
+    "r-desc::c-5": {
+      "html": "<span class=\"v0e\">A</span>n individual"
+    },
+    "r-desc::c-6": {
+      "html": "<span class=\"v0e\">A company, a point of view</span>"
+    },
+    "r-desc::c-7": {
+      "html": "A gathering of&nbsp;individuals"
+    },
+    "r-family::c-field": {
+      "html": "<span class=\"v0e\">Family</span>"
+    },
+    "r-family::c-0": {
+      "html": "<span class=\"v0e\">What · context</span>"
+    },
+    "r-family::c-1": {
+      "html": "<span class=\"v0e\">What · action</span>"
+    },
+    "r-family::c-2": {
+      "html": "<span class=\"v0e\">What · thing</span>"
+    },
+    "r-family::c-3": {
+      "html": "<span class=\"v0e\">When · span</span>"
+    },
+    "r-family::c-4": {
+      "html": "<span class=\"v0e\">When · point</span>"
+    },
+    "r-family::c-5": {
+      "html": "<span class=\"v0e\">Who · person</span>"
+    },
+    "r-family::c-6": {
+      "html": "<span class=\"v0e\">Who · structure</span>"
+    },
+    "r-family::c-7": {
+      "html": "<span class=\"v0e\">Who · gather</span>"
+    },
+    "r-creatable::c-field": {
+      "html": "<span class=\"v0e\">Creatable<br></span>New entity -&gt; State = Open"
+    },
+    "r-creatable::c-0": {
+      "html": "<span class=\"v0e\">Yes</span> - <br>On creation:<br>State = open,&nbsp;unless specified otherwise (if planned in future then state = scheduled etc.)",
+      "reconcile": "match"
+    },
+    "r-creatable::c-1": {
+      "html": "<span class=\"v0e\" style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">Yes</span> -<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">On creation:<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = open, unless specified otherwise (if planned in future then state = scheduled etc.)",
+      "reconcile": "match"
+    },
+    "r-creatable::c-2": {
+      "html": "<span class=\"v0e\" style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">Yes</span> -<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">On creation:<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = open, unless specified otherwise (if planned in future then state = scheduled etc.)",
+      "reconcile": "match"
+    },
+    "r-creatable::c-3": {
+      "html": "<span class=\"v0e\" style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">Yes</span> -<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">On creation:<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = open, unless specified otherwise (if planned in future then state = scheduled etc.)",
+      "reconcile": "match"
+    },
+    "r-creatable::c-4": {
+      "html": "<span class=\"v0e\" style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">Yes</span> -<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">On creation:<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = open, unless specified otherwise (if planned in future then state = scheduled etc.)",
+      "reconcile": "match"
+    },
+    "r-creatable::c-5": {
+      "html": "<span class=\"v0e\" style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">Yes</span> -<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">On creation:<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = open, unless specified otherwise (if planned in future then state = expected etc.)",
+      "note": "Normally an Individual is spawned WITH a Soul, not created ad hoc — it’s temporarily creatable so Loris can dogfood people/other Individuals directly.",
+      "reconcile": "match"
+    },
+    "r-creatable::c-6": {
+      "html": "<span class=\"v0e\" style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">Yes</span> -<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">On creation:<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = open, unless specified otherwise (if planned in future then state = expected etc.)",
+      "reconcile": "match"
+    },
+    "r-creatable::c-7": {
+      "html": "<span class=\"v0e\" style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">Yes</span> -<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">On creation:<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = open, unless specified otherwise (if planned in future then state = expected etc.)",
+      "reconcile": "match"
+    },
+    "r-planned::c-field": {
+      "html": "<span class=\"v0e\">Plann</span>able<br>-&gt; State = Scheduled<br>"
+    },
+    "r-planned::c-0": {
+      "html": "<span class=\"v0e\">Yes <br>—&nbsp;</span>fields<br>start/end/duration/recurrence",
+      "reconcile": "match"
+    },
+    "r-planned::c-1": {
+      "html": "<span class=\"v0e\" style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">Yes <br>—</span><span class=\"v0e\" style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5); color: lab(91.88 0.0000298023 -0.0000119209);\"> </span>fields<div>start/end/duration/recurrence</div>",
+      "reconcile": "match"
+    },
+    "r-planned::c-2": {
+      "html": "<span class=\"v0e\" style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5); color: lab(91.88 0.0000298023 -0.0000119209);\">Yes<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">—</span><span class=\"v0e\" style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5); color: lab(91.88 0.0000298023 -0.0000119209);\"> </span>fields<div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">start/end/duration/recurrence</div>",
+      "reconcile": "match"
+    },
+    "r-planned::c-3": {
+      "html": "<span class=\"v0e\" style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5); color: lab(91.88 0.0000298023 -0.0000119209);\">Yes<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">—</span><span class=\"v0e\" style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5); color: lab(91.88 0.0000298023 -0.0000119209);\"> </span>fields<div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">start/end/duration/recurrence</div>",
+      "reconcile": "match"
+    },
+    "r-planned::c-4": {
+      "html": "Yes<br><span class=\"v0e\">—</span> fields<br>at/start/end/recurrence.<div>Auto-traits:<br><ul style=\"\"><li style=\"\"><span style=\"color: rgb(37, 99, 235);\">at == start == end.</span></li><li style=\"\"><span style=\"color: rgb(37, 99, 235);\">Duration is always 0.</span></li></ul></div>",
+      "reconcile": "match"
+    },
+    "r-planned::c-5": {
+      "html": "<div>Yes<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">— fields : {start}<div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State reads \"Expected\" instead of \"Scheduled\"</div></div>",
+      "reconcile": "match"
+    },
+    "r-planned::c-6": {
+      "html": "Yes<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">— fields : {start, end, duration}<div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State reads \"Expected\" instead of \"Scheduled\"</div><div><span class=\"v0e\">(no recurrence on the being itself — for a recurring organization use a recurrent Moment child)</span></div>",
+      "reconcile": "match"
+    },
+    "r-planned::c-7": {
+      "html": "Yes<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">— fields : {start, end, duration, recurrence}<div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State reads \"Expected\" instead of \"Scheduled\"</div>",
+      "reconcile": "match"
+    },
+    "r-done::c-field": {
+      "html": "Mark as Done<br><div>-&gt; State = Done<br></div>"
+    },
+    "r-done::c-0": {
+      "html": "no<br>",
+      "reconcile": "match"
+    },
+    "r-done::c-1": {
+      "html": "<span class=\"v0e\">Yes — a soft checkmar</span>k, a dedicated state for Tasks. Set entity as Completed automatically at&nbsp;following midnight, unless manually closed before  or if&nbsp;task owner is different than task executioner (i.e. uzer that&nbsp;set&nbsp;the&nbsp;Task as done).",
+      "reconcile": "match"
+    },
+    "r-done::c-2": {
+      "html": "no<br>",
+      "reconcile": "match"
+    },
+    "r-done::c-3": {
+      "html": "no<br>",
+      "reconcile": "match"
+    },
+    "r-done::c-4": {
+      "html": "no<br>",
+      "reconcile": "match"
+    },
+    "r-done::c-5": {
+      "html": "no<br>",
+      "reconcile": "match"
+    },
+    "r-done::c-6": {
+      "html": "no<br>",
+      "reconcile": "match"
+    },
+    "r-done::c-7": {
+      "html": "no<br>",
+      "reconcile": "match"
+    },
+    "r-terminal::c-field": {
+      "html": "<span class=\"v0e\">Terminal end</span>"
+    },
+    "r-terminal::c-0": {
+      "html": "Closed,&nbsp;Deleted,  Cancelled<br>"
+    },
+    "r-terminal::c-1": {
+      "html": "Closed, Deleted, Cancelled"
+    },
+    "r-terminal::c-2": {
+      "html": "Closed, Deleted, Cancelled"
+    },
+    "r-terminal::c-3": {
+      "html": "Closed, Deleted, Cancelled"
+    },
+    "r-terminal::c-4": {
+      "html": "Closed, Deleted, Cancelled"
+    },
+    "r-terminal::c-5": {
+      "html": "Dead,  Deleted, Cancelled"
+    },
+    "r-terminal::c-6": {
+      "html": "Retired, Deleted, Cancelled<br>"
+    },
+    "r-terminal::c-7": {
+      "html": "Retired, Deleted, Cancelled"
+    },
+    "r-open::c-field": {
+      "html": "<span class=\"v0e\"><span style=\"color:#2563eb\">State: open</span></span>"
+    },
+    "r-open::c-0": {
+      "html": "Yes<br><div><br></div><div>First state on creation<br></div>",
+      "glyphInline": "space"
+    },
+    "r-open::c-1": {
+      "html": "Yes<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"></div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">First state on creation</div>",
+      "glyphInline": "task"
+    },
+    "r-open::c-2": {
+      "html": "Yes<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"></div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">When empty/missing/unavailable<br></div>",
+      "glyphInline": "resource"
+    },
+    "r-open::c-3": {
+      "html": "Yes<div><br></div><div>While st<br></div>",
+      "glyphInline": "moment"
+    },
+    "r-open::c-4": {
+      "html": "Yes",
+      "glyphInline": "instant"
+    },
+    "r-open::c-5": {
+      "html": "Yes",
+      "glyphInline": "individual"
+    },
+    "r-open::c-6": {
+      "html": "<br>",
+      "glyphInline": "organism"
+    },
+    "r-open::c-7": {
+      "html": "<br>",
+      "glyphInline": "community"
+    },
+    "r-scheduled::c-field": {
+      "html": "<span class=\"v0e\">State: scheduled</span>"
+    },
+    "r-scheduled::c-0": {
+      "html": "Yes<br>"
+    },
+    "r-scheduled::c-1": {
+      "html": "Yes<br>"
+    },
+    "r-scheduled::c-2": {
+      "html": "Yes<br>"
+    },
+    "r-scheduled::c-3": {
+      "html": "Yes<br>"
+    },
+    "r-scheduled::c-4": {
+      "html": "Yes"
+    },
+    "r-scheduled::c-5": {
+      "html": "Yes<br>"
+    },
+    "r-scheduled::c-6": {
+      "html": "Yes<br>"
+    },
+    "r-scheduled::c-7": {
+      "html": "Yes<br>"
+    },
+    "r-ongoing::c-field": {
+      "html": "<span class=\"v0e\">State: ongoing</span>"
+    },
+    "r-ongoing::c-0": {
+      "html": "<span class=\"v0e\">Open PLAY session, OR concrete start in progress, OR a contained child is ongoing (rollup)</span>"
+    },
+    "r-ongoing::c-1": {
+      "html": "<span class=\"v0e\">Open PLAY session (auto-opened on enter while undone). Focus/viewing never flips state</span>"
+    },
+    "r-ongoing::c-2": {
+      "html": "<span class=\"v0e\">Open PLAY session (auto-opened on enter)</span>"
+    },
+    "r-ongoing::c-3": {
+      "html": "<span class=\"v0e\">Open PLAY session, OR concrete start passed &amp; not yet ended</span>"
+    },
+    "r-ongoing::c-4": {
+      "html": "<span class=\"v0e\">Never — a point in time</span>"
+    },
+    "r-ongoing::c-5": {
+      "html": "<span class=\"v0e\">Never — a being reads ALIVE, not “in progress” (rollup stops at beings)</span>"
+    },
+    "r-ongoing::c-6": {
+      "html": "<span class=\"v0e\">Never — a being reads ALIVE (rollup stops here)</span>"
+    },
+    "r-ongoing::c-7": {
+      "html": "<span class=\"v0e\">Never — a being reads ALIVE (rollup stops here)</span>"
+    },
+    "r-donestate::c-field": {
+      "html": "<span class=\"v0e\">State: done</span>"
+    },
+    "r-donestate::c-0": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-donestate::c-1": {
+      "html": "<span class=\"v0e\">Marked Done (checkmark). Completes the task — unless a <span data-note=\"A Task marked Done while it still has an open task-child reads the dedicated word done (ranked above ongoing), NOT complete; it auto-completes the instant the last task-child completes. Non-task children never gate.\">task-child is still open</span>, when it reads “done but open”</span>"
+    },
+    "r-donestate::c-2": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-donestate::c-3": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-donestate::c-4": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-donestate::c-5": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-donestate::c-6": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-donestate::c-7": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-complete::c-field": {
+      "html": "<span class=\"v0e\">State: complete</span>"
+    },
+    "r-complete::c-0": {
+      "html": "<span class=\"v0e\">Its set end has passed; glyph FILLS, row stays live awaiting midnight close</span>"
+    },
+    "r-complete::c-1": {
+      "html": "<span class=\"v0e\">Done + all task-children complete; glyph fills, awaits close</span>"
+    },
+    "r-complete::c-2": {
+      "html": "<span class=\"v0e\">When a set end passes</span>"
+    },
+    "r-complete::c-3": {
+      "html": "<span class=\"v0e\">Its end has passed; glyph fills, awaits close</span>"
+    },
+    "r-complete::c-4": {
+      "html": "<span class=\"v0e\">Reached its max occurrences (marks + a passed <code>at</code>); default max 1</span>"
+    },
+    "r-complete::c-5": {
+      "html": "<span class=\"v0e\">— beings don’t “complete”</span>"
+    },
+    "r-complete::c-6": {
+      "html": "<span class=\"v0e\">— beings don’t “complete”</span>"
+    },
+    "r-complete::c-7": {
+      "html": "<span class=\"v0e\">— beings don’t “complete”</span>"
+    },
+    "r-closed::c-field": {
+      "html": "<span class=\"v0e\">State: closed / dead / retired</span>"
+    },
+    "r-closed::c-0": {
+      "html": "<span class=\"v0e\">Closed — filed at the stamped midnight (fills + fades)</span>"
+    },
+    "r-closed::c-1": {
+      "html": "<span class=\"v0e\">Closed — filed at midnight after Done (fills + fades)</span>"
+    },
+    "r-closed::c-2": {
+      "html": "<span class=\"v0e\">Closed by hand (fills + fades)</span>"
+    },
+    "r-closed::c-3": {
+      "html": "<span class=\"v0e\">Closed at the next midnight (fills + fades)</span>"
+    },
+    "r-closed::c-4": {
+      "html": "<span class=\"v0e\">Closed at the next midnight (fills + fades)</span>"
+    },
+    "r-closed::c-5": {
+      "html": "<span class=\"v0e\"><b>Dead</b> — fades, keeps its outline (<code>diedOn</code>)</span>"
+    },
+    "r-closed::c-6": {
+      "html": "<span class=\"v0e\"><b>Dead</b> — fades, keeps its outline (<code>diedOn</code>)</span>"
+    },
+    "r-closed::c-7": {
+      "html": "<span class=\"v0e\"><b>Retired</b> — fades, keeps its outline (<code>retiredOn</code>)</span>"
+    },
+    "r-cancelled::c-field": {
+      "html": "<span class=\"v0e\">State: cancelled</span>"
+    },
+    "r-cancelled::c-0": {
+      "html": "<span class=\"v0e\">Called off — bar over glyph + strike + fade</span>"
+    },
+    "r-cancelled::c-1": {
+      "html": "<span class=\"v0e\">Called off — bar over glyph + strike + fade</span>"
+    },
+    "r-cancelled::c-2": {
+      "html": "<span class=\"v0e\">Called off — bar + strike + fade</span>"
+    },
+    "r-cancelled::c-3": {
+      "html": "<span class=\"v0e\">Called off — bar + strike + fade</span>"
+    },
+    "r-cancelled::c-4": {
+      "html": "<span class=\"v0e\">Called off — bar + strike + fade</span>"
+    },
+    "r-cancelled::c-5": {
+      "html": "<span class=\"v0e\">Not available — an Individual can’t be cancelled</span>"
+    },
+    "r-cancelled::c-6": {
+      "html": "<span class=\"v0e\">Called off — bar + strike + fade</span>"
+    },
+    "r-cancelled::c-7": {
+      "html": "<span class=\"v0e\">Called off — bar + strike + fade</span>"
+    },
+    "r-enter::c-field": {
+      "html": "<span class=\"v0e\">On enter (drill-in)</span>"
+    },
+    "r-enter::c-0": {
+      "html": "<span class=\"v0e\">Auto-opens a PLAY session ⇒ spins + DURATION counts; ACCESS (presence) also ticks</span>"
+    },
+    "r-enter::c-1": {
+      "html": "<span class=\"v0e\">Auto-PLAY while undone ⇒ spins; a Done task is presence-only (ACCESS ticks, no spin)</span>"
+    },
+    "r-enter::c-2": {
+      "html": "<span class=\"v0e\">Auto-PLAY ⇒ spins</span>"
+    },
+    "r-enter::c-3": {
+      "html": "<span class=\"v0e\">Presence only (ACCESS ticks); does NOT auto-play</span>"
+    },
+    "r-enter::c-4": {
+      "html": "<span class=\"v0e\">Presence only; never ongoing</span>"
+    },
+    "r-enter::c-5": {
+      "html": "<span class=\"v0e\">Presence only (ACCESS ticks); never spins</span>"
+    },
+    "r-enter::c-6": {
+      "html": "<span class=\"v0e\">Presence only; never spins</span>"
+    },
+    "r-enter::c-7": {
+      "html": "<span class=\"v0e\">Presence only; never spins</span>"
+    },
+    "r-glyphclick::c-field": {
+      "html": "<span class=\"v0e\">Glyph click</span>"
+    },
+    "r-glyphclick::c-0": {
+      "html": "<span class=\"v0e\">Idle ⇒ Play; spinning ⇒ Stop</span>"
+    },
+    "r-glyphclick::c-1": {
+      "html": "<span class=\"v0e\">Spinning ⇒ Stop; resting + undone ⇒ Done; done ⇒ un-done (resumes if still open)</span>"
+    },
+    "r-glyphclick::c-2": {
+      "html": "<span class=\"v0e\">Idle ⇒ Play; spinning ⇒ Stop</span>"
+    },
+    "r-glyphclick::c-3": {
+      "html": "<span class=\"v0e\">Idle ⇒ Play (manual stopwatch, activity rail); spinning ⇒ Stop</span>"
+    },
+    "r-glyphclick::c-4": {
+      "html": "<span class=\"v0e\">Mark — adds one occurrence; glyph flashes its fill once</span>"
+    },
+    "r-glyphclick::c-5": {
+      "html": "<span class=\"v0e\">— view only</span>"
+    },
+    "r-glyphclick::c-6": {
+      "html": "<span class=\"v0e\">— view only</span>"
+    },
+    "r-glyphclick::c-7": {
+      "html": "<span class=\"v0e\">— view only</span>"
+    },
+    "r-play::c-field": {
+      "html": "<span class=\"v0e\">Play / Stop (menu)</span>"
+    },
+    "r-play::c-0": {
+      "html": "<span class=\"v0e\">Play ⇒ open a play session; Stop ⇒ close it (records on the activity rail)</span>"
+    },
+    "r-play::c-1": {
+      "html": "<span class=\"v0e\">Via glyph; auto-plays on enter</span>"
+    },
+    "r-play::c-2": {
+      "html": "<span class=\"v0e\">Play / Stop; auto-plays on enter</span>"
+    },
+    "r-play::c-3": {
+      "html": "<span class=\"v0e\">Play ⇒ open a play session; Stop ⇒ close it</span>"
+    },
+    "r-play::c-4": {
+      "html": "<span class=\"v0e\">— use Mark instead</span>"
+    },
+    "r-play::c-5": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-play::c-6": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-play::c-7": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-mark::c-field": {
+      "html": "<span class=\"v0e\">Mark</span>"
+    },
+    "r-mark::c-0": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-mark::c-1": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-mark::c-2": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-mark::c-3": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-mark::c-4": {
+      "html": "<span class=\"v0e\">Append a zero-length occurrence toward the tally. <code>--maxnb:3</code> soft cap, <code>--maxnbhard:3</code> hard cap; default max 1 = a unique occurrence</span>"
+    },
+    "r-mark::c-5": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-mark::c-6": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-mark::c-7": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-sources::c-field": {
+      "html": "<span class=\"v0e\">Ongoing sources</span>"
+    },
+    "r-sources::c-0": {
+      "html": "<span class=\"v0e\">① open play · ② concrete started span · ③ rollup from a contained child</span>"
+    },
+    "r-sources::c-1": {
+      "html": "<span class=\"v0e\">① open play (focus/viewing never flips state)</span>"
+    },
+    "r-sources::c-2": {
+      "html": "<span class=\"v0e\">① open play</span>"
+    },
+    "r-sources::c-3": {
+      "html": "<span class=\"v0e\">① open play · ② concrete started span</span>"
+    },
+    "r-sources::c-4": {
+      "html": "<span class=\"v0e\">none</span>"
+    },
+    "r-sources::c-5": {
+      "html": "<span class=\"v0e\">none — rollup stops at beings</span>"
+    },
+    "r-sources::c-6": {
+      "html": "<span class=\"v0e\">none — rollup stops at beings</span>"
+    },
+    "r-sources::c-7": {
+      "html": "<span class=\"v0e\">none — rollup stops at beings</span>"
+    },
+    "r-schedule::c-field": {
+      "html": "<span class=\"v0e\">Schedule fields</span>"
+    },
+    "r-schedule::c-0": {
+      "html": "<span class=\"v0e\">start · end · duration</span>"
+    },
+    "r-schedule::c-1": {
+      "html": "<span class=\"v0e\">start · end · due · duration</span>"
+    },
+    "r-schedule::c-2": {
+      "html": "<span class=\"v0e\">start · end · duration (when set)</span>"
+    },
+    "r-schedule::c-3": {
+      "html": "<span class=\"v0e\">start · end · duration</span>"
+    },
+    "r-schedule::c-4": {
+      "html": "<span class=\"v0e\">at (start = end = at, a point)</span>"
+    },
+    "r-schedule::c-5": {
+      "html": "<span class=\"v0e\">— AGE from <code>createdAt</code></span>"
+    },
+    "r-schedule::c-6": {
+      "html": "<span class=\"v0e\">— AGE from <code>createdAt</code></span>"
+    },
+    "r-schedule::c-7": {
+      "html": "<span class=\"v0e\">— AGE from <code>createdAt</code></span>"
+    },
+    "r-usecase::c-field": {
+      "html": "<span class=\"v0e\">Usecase</span>"
+    },
+    "r-usecase::c-0": {
+      "html": "<span class=\"v0e\">“Work”, “Kitchen”, </span>\"Home\", any project, ..."
+    },
+    "r-usecase::c-1": {
+      "html": "<span class=\"v0e\">“Write the report”, “Buy&nbsp;</span>groceries\", \"Water the plants\", \"Organize weekend\",  \"Walk the dog\", ... "
+    },
+    "r-usecase::c-2": {
+      "html": "<span class=\"v0e\">A website, a doc, a</span>n app, ..."
+    },
+    "r-usecase::c-3": {
+      "html": "<span class=\"v0e\">“Lunch 1–2pm”, “Sprint week”</span>, \"Meeting\", ..."
+    },
+    "r-usecase::c-4": {
+      "html": "<span class=\"v0e\">“Ship v1”, </span>\"Milestone\", \"Deadline\", \"Birthday\", \"Equinox\", <span class=\"v0e\">a</span>ny<span class=\"v0e\"> heartbeat ping</span>, ..."
+    },
+    "r-usecase::c-5": {
+      "html": "Someone&nbsp;on Zero, a uzer, or a reference to someone offline<br>"
+    },
+    "r-usecase::c-6": {
+      "html": "<span class=\"v0e\">“</span>4FTER<span class=\"v0e\">”, </span>\"X\", \"The Heritage Foundation\", <span class=\"v0e\">a company</span>, an institution,&nbsp;"
+    },
+    "r-usecase::c-7": {
+      "html": "A team, a city, a country, a neighborhood, an association, <span class=\"v0e\">a</span>ny<span class=\"v0e\"> </span>self defined <span class=\"v0e\">group</span> of people, ..."
+    },
+    "r-mrtotrwz-1::c-field": {
+      "html": "Completable<br>-&gt; State = Completed<br>"
+    },
+    "r-mrtotrwz-1::c-0": {
+      "html": "yes, manual only - glyph spins once and fills.&nbsp;<div><br><div>State = Completed<br></div></div>",
+      "reconcile": "match"
+    },
+    "r-mrtotrwz-1::c-1": {
+      "html": "yes, manual and auto - glyph spins once and fills.<div><br></div><div>A done task will be automatically marked completed at the next midnight, unless task&nbsp;owner is not task executioner (task executioner is the user that marks it as done).&nbsp;Since&nbsp;completed&nbsp;Tasks also close at midnight, they are by default closed at the following midnight, unless --close:manual is set.</div><div><br></div><div>State = Completed<br></div>",
+      "reconcile": "match"
+    },
+    "r-mrtotrwz-1::c-2": {
+      "html": "yes, manual and auto - glyph spins once and fills<div><br><div>State reads \"Ready\" instead of Completed.</div><div><br></div><div>Web Resources pages are always completed, unless 404, but that's a detail.<br><br></div></div><div>State =&nbsp;Ready<br></div>",
+      "reconcile": "match"
+    },
+    "r-mrtotrwz-1::c-3": {
+      "html": "yes manual and auto- glyph spins once and fills.<div><br></div><div> Moments complete automatically once endDate is passed, or earlier manually. Completed Moments close&nbsp;automatically at next midnight unless&nbsp;--close:manual</div><div><br></div><div>State = Completed<br></div>",
+      "reconcile": "match"
+    },
+    "r-mrtotrwz-1::c-4": {
+      "html": "yes manual and auto - glyp spins once and fills.<div><br></div><div>Instants complete automatically once at/start/end is passed, or earlier manually. Completed Instants close automatically at next midnight unless --close:manual<br></div><div><br></div><div>State = Completed<br></div>",
+      "reconcile": "match"
+    },
+    "r-mrtotrwz-1::c-5": {
+      "html": "no<br>",
+      "reconcile": "match"
+    },
+    "r-mrtotrwz-1::c-6": {
+      "html": "no<br>",
+      "reconcile": "match"
+    },
+    "r-mrtotrwz-1::c-7": {
+      "html": "no<br>",
+      "reconcile": "match"
+    },
+    "r-mrucnvi5-1::c-field": {
+      "html": "Alive/Ongoing"
+    },
+    "r-mrucnvi5-1::c-0": {
+      "html": "Yes -&nbsp;ongoing,&nbsp;glyph spins"
+    },
+    "r-mrucnvi5-1::c-1": {
+      "html": "Yes - ongoing, glyph spins"
+    },
+    "r-mrucnvi5-1::c-2": {
+      "html": "Yes - ongoing, glyph spins"
+    },
+    "r-mrucnvi5-1::c-3": {
+      "html": "Yes - ongoing, glyph spins"
+    },
+    "r-mrucnvi5-1::c-4": {
+      "html": "No - glyph spins once at start/end/at time"
+    },
+    "r-mrucnvi5-1::c-5": {
+      "html": ""
+    },
+    "r-mrucnvi5-1::c-6": {
+      "html": ""
+    },
+    "r-mrucnvi5-1::c-7": {
+      "html": ""
+    },
+    "r-mrugksk3-1::c-field": {
+      "html": "Transform into"
+    },
+    "r-mrugksk3-1::c-0": {
+      "html": ""
+    },
+    "r-mrugksk3-1::c-1": {
+      "html": ""
+    },
+    "r-mrugksk3-1::c-2": {
+      "html": ""
+    },
+    "r-mrugksk3-1::c-3": {
+      "html": ""
+    },
+    "r-mrugksk3-1::c-4": {
+      "html": ""
+    },
+    "r-mrugksk3-1::c-5": {
+      "html": ""
+    },
+    "r-mrugksk3-1::c-6": {
+      "html": ""
+    },
+    "r-mrugksk3-1::c-7": {
+      "html": ""
+    },
+    "r-mrugx1sq-0::c-field": {
+      "html": "State:closed"
+    },
+    "r-mrugx1sq-0::c-0": {
+      "html": "Yes - glyph fades, manual only."
+    },
+    "r-mrugx1sq-0::c-1": {
+      "html": "Yes - glyph fades, auto-close of completed tasks at following midnight unless --close:manual"
+    },
+    "r-mrugx1sq-0::c-2": {
+      "html": "Yes - glyph fades"
+    },
+    "r-mrugx1sq-0::c-3": {
+      "html": "Yes - glyph fades, auto-close of completed Moments at following midnight unless --close:manual"
+    },
+    "r-mrugx1sq-0::c-4": {
+      "html": "Yes - glyph fades, auto-close of completed Instants (tasks at following midnight unless --close:manual"
+    },
+    "r-mrugx1sq-0::c-5": {
+      "html": "yes&nbsp;&nbsp;<span style=\"border-color: lab(87.24 -0.0000298023 0); outline-color: oklab(0.699998 -0.00000685453 0.0000163913 / 0.5); color: lab(91.88 0.0000298023 -0.0000119209);\">—</span>(\"Dead\") glyph fades and mirrored vertically. manual only."
+    },
+    "r-mrugx1sq-0::c-6": {
+      "html": "yes - (\"Retired\") glyph fades. manual only."
+    },
+    "r-mrugx1sq-0::c-7": {
+      "html": "yes - (\"Retired\") glyph fades"
+    },
+    "r-mruyayc3-0::c-field": {
+      "html": "Deletable<div>-&gt; State = Deleted<br></div>"
+    },
+    "r-mruyayc3-0::c-0": {
+      "html": "Yes -<br>State =&nbsp;Deleted.&nbsp;<br><div><span class=\"v0e\">First prompts what to do with any children, then confirms.</span></div>",
+      "reconcile": "match"
+    },
+    "r-mruyayc3-0::c-1": {
+      "html": "Yes -<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = Deleted.&nbsp;<div><span class=\"v0e\">First prompts what to do with any children, then confirms.</span></div>",
+      "reconcile": "match"
+    },
+    "r-mruyayc3-0::c-2": {
+      "html": "Yes -<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = Deleted.&nbsp;<div><span class=\"v0e\">First prompts what to do with any children, then confirms.</span></div>",
+      "reconcile": "match"
+    },
+    "r-mruyayc3-0::c-3": {
+      "html": "Yes -<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = Deleted.&nbsp;<div><span class=\"v0e\">First prompts what to do with any children, then confirms.</span></div>",
+      "reconcile": "match"
+    },
+    "r-mruyayc3-0::c-4": {
+      "html": "Yes -<br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = Deleted.&nbsp;<div><span class=\"v0e\">First prompts what to do with any children, then confirms.</span></div>",
+      "reconcile": "match"
+    },
+    "r-mruyayc3-0::c-5": {
+      "html": "Deletable only while not alive",
+      "reconcile": "match"
+    },
+    "r-mruyayc3-0::c-6": {
+      "html": "<b>Alive via PUBLISH</b> — a Organism becomes <b>alive</b> when it is <b>published</b> (right-click → Publish; the `publishedAt` stamp is its birth, the parallel to an Individual’s born date). Before that it is a draft: open, or scheduled/expected if it has a future founding start.<div><br></div><div><b>Deletable only while NOT alive</b> (open / scheduled / cancelled) — a published (live) Organism cannot be deleted, only <b>Unpublished</b> back to a draft. Closing a live one ⇒ <b>dead</b> (age = published→dead); closing a draft ⇒ plain <b>closed</b>.</div><div><br></div><div>v0 → SHIPPED. New state <b>alive</b>; <b>publishedAt</b> field + Publish/Unpublish menu toggle (any kind except Soul); guards <b>canDeleteEntity</b>/<b>canCancelEntity</b> are life-being-aware (<b>isLifeBeing</b>); <b>published</b>, life-status (upcoming/live) + age render in §0. NOT tied to the Sessions rework.</div>"
+    },
+    "r-mruyayc3-0::c-7": {
+      "html": "<b>Alive via PUBLISH</b> — a Community becomes <b>alive</b> when it is <b>published</b> (right-click → Publish; the `publishedAt` stamp is its birth, the parallel to an Individual’s born date). Before that it is a draft: open, or scheduled/expected if it has a future founding start.<div><br></div><div><b>Deletable only while NOT alive</b> (open / scheduled / cancelled) — a published (live) Community cannot be deleted, only <b>Unpublished</b> back to a draft. Closing a live one ⇒ <b>retired</b> (age = published→retired); closing a draft ⇒ plain <b>closed</b>.</div><div><br></div><div>v0 → SHIPPED. New state <b>alive</b>; <b>publishedAt</b> field + Publish/Unpublish menu toggle (any kind except Soul); guards <b>canDeleteEntity</b>/<b>canCancelEntity</b> are life-being-aware (<b>isLifeBeing</b>); <b>published</b>, life-status (upcoming/live) + age render in §0. NOT tied to the Sessions rework.</div>"
+    },
+    "r-mrv2cw0l-0::c-field": {
+      "html": "Status: ongoing"
+    },
+    "r-mrv2cw0l-0::c-0": {
+      "html": "Yes - manual or auto<div><br></div><div>manual: when there existspinning glyph (2345ms/r otation when present, half that if not present</div>"
+    },
+    "r-mrv2cw0l-0::c-1": {
+      "html": ""
+    },
+    "r-mrv2cw0l-0::c-2": {
+      "html": ""
+    },
+    "r-mrv2cw0l-0::c-3": {
+      "html": ""
+    },
+    "r-mrv2cw0l-0::c-4": {
+      "html": ""
+    },
+    "r-mrv2cw0l-0::c-5": {
+      "html": ""
+    },
+    "r-mrv2cw0l-0::c-6": {
+      "html": ""
+    },
+    "r-mrv2cw0l-0::c-7": {
+      "html": ""
+    },
+    "r-mrv41tu4-2::c-field": {
+      "html": "Closable<div>-&gt; State = Closed<br></div>"
+    },
+    "r-mrv41tu4-2::c-0": {
+      "html": "Yes - manually. Glyph fades.<div><div><br><div>State = Closed<br></div></div></div>",
+      "reconcile": "match"
+    },
+    "r-mrv41tu4-2::c-1": {
+      "html": "Yes - manually and auto. Glyph fades.<div><br><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">Completed Tasks automatically close at the next midnight by default, unless --close:manual.</div></div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><br></div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = Closed<br></div>",
+      "reconcile": "match"
+    },
+    "r-mrv41tu4-2::c-2": {
+      "html": "Yes - manually. Glyph fades.<div><br></div><div>State = Closed<br></div>",
+      "reconcile": "match"
+    },
+    "r-mrv41tu4-2::c-3": {
+      "html": "Yes - manually and auto.&nbsp;Glyph fades.<div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">Completed Moments automatically close at the next midnight by default, unless --close:manual.</div></div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"></div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = Closed</div>",
+      "reconcile": "match"
+    },
+    "r-mrv41tu4-2::c-4": {
+      "html": "Yes - manually and auto. Glyph fades.<div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">Completed Instants automatically close at the next midnight by default, unless --close:manual.</div></div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"></div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = Closed</div>",
+      "reconcile": "match"
+    },
+    "r-mrv41tu4-2::c-5": {
+      "html": "Yes - manually. Glyph fades and&nbsp;is mirrored vertically if Individual was alive, otherwise strikethrough like cancelled.<div><br></div><div>Closable any time: closing while alive ⇒ <span style=\"border-color: lab(87.24 -0.0000298023 0); outline-color: oklab(0.699998 -0.00000685453 0.0000163913 / 0.5);\">dead</span> (a kill; age = born→death, status row hidden); closing while not alive ⇒ <span style=\"border-color: lab(87.24 -0.0000298023 0); outline-color: oklab(0.699998 -0.00000685453 0.0000163913 / 0.5);\">closed</span>.&nbsp;<br><div><br></div><div>State reads \"Dead\".<br></div></div>",
+      "reconcile": "match"
+    },
+    "r-mrv41tu4-2::c-6": {
+      "html": "Yes - manually. Glyph fades.<div><br></div><div>State reads&nbsp;\"Retired\"</div>",
+      "reconcile": "match"
+    },
+    "r-mrv41tu4-2::c-7": {
+      "html": "Yes - manually. Glyph fades.<div><br></div><div>State reads \"Retired\"</div>",
+      "reconcile": "match"
+    },
+    "r-mrv48ox3-5::c-field": {
+      "html": "Remote Play"
+    },
+    "r-mrv48ox3-5::c-0": {
+      "html": ""
+    },
+    "r-mrv48ox3-5::c-1": {
+      "html": ""
+    },
+    "r-mrv48ox3-5::c-2": {
+      "html": ""
+    },
+    "r-mrv48ox3-5::c-3": {
+      "html": ""
+    },
+    "r-mrv48ox3-5::c-4": {
+      "html": ""
+    },
+    "r-mrv48ox3-5::c-5": {
+      "html": ""
+    },
+    "r-mrv48ox3-5::c-6": {
+      "html": ""
+    },
+    "r-mrv48ox3-5::c-7": {
+      "html": ""
+    },
+    "r-mrv4ad42-6::c-field": {
+      "html": "Children of<br>"
+    },
+    "r-mrv4ad42-6::c-0": {
+      "html": ""
+    },
+    "r-mrv4ad42-6::c-1": {
+      "html": ""
+    },
+    "r-mrv4ad42-6::c-2": {
+      "html": ""
+    },
+    "r-mrv4ad42-6::c-3": {
+      "html": ""
+    },
+    "r-mrv4ad42-6::c-4": {
+      "html": ""
+    },
+    "r-mrv4ad42-6::c-5": {
+      "html": ""
+    },
+    "r-mrv4ad42-6::c-6": {
+      "html": ""
+    },
+    "r-mrv4ad42-6::c-7": {
+      "html": ""
+    },
+    "r-mrv5t3i9-1::c-field": {
+      "html": "Cancellable<div>-&gt; State = Cancelled<br></div>"
+    },
+    "r-mrv5t3i9-1::c-0": {
+      "html": "Yes - manually<div><br></div><div>State = Cancelled<br><div><br></div><div><br></div></div>",
+      "reconcile": "match"
+    },
+    "r-mrv5t3i9-1::c-1": {
+      "html": "Yes - manually<div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"></div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = Cancelled</div>",
+      "reconcile": "match"
+    },
+    "r-mrv5t3i9-1::c-2": {
+      "html": "Yes - manually<div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"></div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = Cancelled</div>",
+      "reconcile": "match"
+    },
+    "r-mrv5t3i9-1::c-3": {
+      "html": "Yes - manually<div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"></div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = Cancelled</div>",
+      "reconcile": "match"
+    },
+    "r-mrv5t3i9-1::c-4": {
+      "html": "Yes - manually<div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"></div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = Cancelled</div>",
+      "reconcile": "match"
+    },
+    "r-mrv5t3i9-1::c-5": {
+      "html": "Yes - manually<div><br><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">Cancellable while open or scheduled</div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><br></div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = Cancelled</div></div>",
+      "reconcile": "match"
+    },
+    "r-mrv5t3i9-1::c-6": {
+      "html": "Yes - manually<div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">Cancellable while open or scheduled</div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"></div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = Cancelled</div></div>",
+      "reconcile": "match"
+    },
+    "r-mrv5t3i9-1::c-7": {
+      "html": "Yes - manually<div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">Cancellable while open or scheduled</div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"></div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = Cancelled</div></div>",
+      "reconcile": "match"
+    },
+    "r-glyph::c-entity": {
+      "glyph": "entity"
+    },
+    "r-glyph::c-soul": {
+      "glyph": "soul"
+    },
+    "r-id::c-entity": {
+      "html": "0<br>"
+    },
+    "r-id::c-soul": {
+      "html": "<span style=\"font-size:1.7em;line-height:1;display:inline-block;vertical-align:-0.15em;color:var(--foreground)\">∞</span>"
+    },
+    "r-name::c-entity": {
+      "html": "The <span class=\"v0e\">Idea</span>"
+    },
+    "r-name::c-soul": {
+      "html": "The <span class=\"v0e\">Soul</span>"
+    },
+    "r-desc::c-entity": {
+      "html": "An idea, a goal, an ambition — not yet shaped"
+    },
+    "r-desc::c-soul": {
+      "html": "<span class=\"v0e\">The animating self behind a</span>n Individual"
+    },
+    "r-family::c-entity": {
+      "html": "Why ·&nbsp;seeded will"
+    },
+    "r-family::c-soul": {
+      "html": "<span class=\"v0e\">Who · the animating self</span>"
+    },
+    "r-usecase::c-entity": {
+      "html": "<span class=\"v0e\">A thought captured before you know what it is</span>, a notion, a target"
+    },
+    "r-usecase::c-soul": {
+      "html": "<span class=\"v0e\">The “you” that persists behind the person</span>"
+    },
+    "r-creatable::c-entity": {
+      "html": "<span class=\"v0e\">Yes — the raw idea any new entity can start as before it is shaped</span>",
+      "reconcile": "match"
+    },
+    "r-creatable::c-soul": {
+      "html": "<span class=\"v0e\">No — a Soul is seeded with a person, never created</span>",
+      "reconcile": "match"
+    },
+    "r-mruyayc3-0::c-entity": {
+      "html": "<span class=\"v0e\">Yes</span>",
+      "reconcile": "match"
+    },
+    "r-mruyayc3-0::c-soul": {
+      "html": "<span class=\"v0e\">No — a Soul cannot be deleted</span>",
+      "reconcile": "match"
+    },
+    "r-planned::c-entity": {
+      "html": "Yes — an Idea can be planned (when to shape or act on it) → State = Scheduled. Shaping it into a span (task/moment) refines the schedule fields.",
+      "reconcile": "match"
+    },
+    "r-planned::c-soul": {
+      "html": "<span class=\"v0e\">No — a Soul is timeless</span>",
+      "reconcile": "match"
+    },
+    "r-done::c-entity": {
+      "html": "<span class=\"v0e\">No</span>",
+      "reconcile": "match"
+    },
+    "r-done::c-soul": {
+      "html": "<span class=\"v0e\">No</span>",
+      "reconcile": "match"
+    },
+    "r-mrtotrwz-1::c-entity": {
+      "html": "<span class=\"v0e\">Yes — can be marked complete</span>",
+      "reconcile": "match"
+    },
+    "r-mrtotrwz-1::c-soul": {
+      "html": "<span class=\"v0e\">No — a Soul does not complete</span>",
+      "reconcile": "match"
+    },
+    "r-mrv41tu4-2::c-entity": {
+      "html": "<span class=\"v0e\">Yes</span>",
+      "reconcile": "match"
+    },
+    "r-mrv41tu4-2::c-soul": {
+      "html": "<span class=\"v0e\">No — a Soul cannot be closed</span>",
+      "reconcile": "match"
+    },
+    "r-mrv5t3i9-1::c-entity": {
+      "html": "Yes - manually<div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"><br style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\"></div><div style=\"border-color: lab(11.84 0 0); outline-color: oklab(0.599999 -0.00000590086 0.0000140369 / 0.5);\">State = Cancelled</div>",
+      "reconcile": "match"
+    },
+    "r-mrv5t3i9-1::c-soul": {
+      "html": "<span class=\"v0e\">No — a Soul cannot be cancelled</span>",
+      "reconcile": "match"
+    },
+    "r-open::c-entity": {
+      "html": "<span class=\"v0e\">Yes — first state on creation</span>"
+    },
+    "r-open::c-soul": {
+      "html": "<span class=\"v0e\">— no lifecycle (seeded, permanent)</span>"
+    },
+    "r-terminal::c-entity": {
+      "html": "<span class=\"v0e\">Closed, Deleted, Cancelled</span>"
+    },
+    "r-terminal::c-soul": {
+      "html": "<span class=\"v0e\">— none (permanent)</span>"
+    },
+    "r-mrv2cw0l-0::c-entity": {
+      "html": "Yes, on enter,<br>"
+    },
+    "r-mrv2cw0l-0::c-soul": {
+      "html": "—"
+    },
+    "r-mrugx1sq-0::c-entity": {
+      "html": "—"
+    },
+    "r-mrugx1sq-0::c-soul": {
+      "html": "—"
+    },
+    "r-scheduled::c-entity": {
+      "html": "<span class=\"v0e\">No — not plannable</span>"
+    },
+    "r-scheduled::c-soul": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-mrucnvi5-1::c-entity": {
+      "html": "—"
+    },
+    "r-mrucnvi5-1::c-soul": {
+      "html": "—"
+    },
+    "r-ongoing::c-entity": {
+      "html": "—"
+    },
+    "r-ongoing::c-soul": {
+      "html": "—"
+    },
+    "r-donestate::c-entity": {
+      "html": "—"
+    },
+    "r-donestate::c-soul": {
+      "html": "—"
+    },
+    "r-complete::c-entity": {
+      "html": "<span class=\"v0e\">When manually marked complete</span>"
+    },
+    "r-complete::c-soul": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-closed::c-entity": {
+      "html": "<span class=\"v0e\">Closed — fades</span>"
+    },
+    "r-closed::c-soul": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-cancelled::c-entity": {
+      "html": "<span class=\"v0e\">Called off — bar + strike + fade</span>"
+    },
+    "r-cancelled::c-soul": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-enter::c-entity": {
+      "html": "<span class=\"v0e\">Presence only (ACCESS ticks)</span>"
+    },
+    "r-enter::c-soul": {
+      "html": "<span class=\"v0e\">—</span>"
+    },
+    "r-glyphclick::c-entity": {
+      "html": "<span class=\"v0e\">— view only</span>"
+    },
+    "r-glyphclick::c-soul": {
+      "html": "<span class=\"v0e\">— view only</span>"
+    },
+    "r-play::c-entity": {
+      "html": "—"
+    },
+    "r-play::c-soul": {
+      "html": "—"
+    },
+    "r-mark::c-entity": {
+      "html": "—"
+    },
+    "r-mark::c-soul": {
+      "html": "—"
+    },
+    "r-sources::c-entity": {
+      "html": "<span class=\"v0e\">none</span>"
+    },
+    "r-sources::c-soul": {
+      "html": "<span class=\"v0e\">none</span>"
+    },
+    "r-schedule::c-entity": {
+      "html": "<span class=\"v0e\">— none (unshaped)</span>"
+    },
+    "r-schedule::c-soul": {
+      "html": "<span class=\"v0e\">— none</span>"
+    },
+    "r-mrv48ox3-5::c-entity": {
+      "html": "—"
+    },
+    "r-mrv48ox3-5::c-soul": {
+      "html": "—"
+    },
+    "r-mrugksk3-1::c-entity": {
+      "html": "<span class=\"v0e\">The base any kind can be de-specialized back to</span>"
+    },
+    "r-mrugksk3-1::c-soul": {
+      "html": "<span class=\"v0e\">— cannot transform</span>"
+    },
+    "r-mrv4ad42-6::c-entity": {
+      "html": "<span class=\"v0e\">Yes — nests like any entity</span>"
+    },
+    "r-mrv4ad42-6::c-soul": {
+      "html": "<span class=\"v0e\">— animates one Individual; not a container</span>"
+    },
+    "r-id::c-facet": {
+      "html": "5"
+    },
+    "r-glyph::c-facet": {
+      "glyph": "link"
+    },
+    "r-name::c-facet": {
+      "html": "The <span class=\"v0e\">Link</span>"
+    },
+    "r-family::c-facet": {
+      "html": "<span class=\"v0e\">What · betwee</span>n"
+    },
+    "r-desc::c-facet": {
+      "html": "A relation between&nbsp;two entities — the link that ties one to another"
+    },
+    "r-usecase::c-facet": {
+      "html": "“blocks”, “depends on”, “tagged with”, “part of”, …"
+    },
+    "r-mrxtlxz8-1::c-field": {
+      "html": ""
+    },
+    "r-mrxtlxz8-1::c-entity": {
+      "html": "+++++++++++++"
+    },
+    "r-mrxtlxz8-1::c-4": {
+      "html": ""
+    },
+    "r-mrxtlxz8-1::c-3": {
+      "html": ""
+    },
+    "r-mrxtlxz8-1::c-2": {
+      "html": ""
+    },
+    "r-mrxtlxz8-1::c-1": {
+      "html": ""
+    },
+    "r-mrxtlxz8-1::c-facet": {
+      "html": "+++++++++++++"
+    },
+    "r-mrxtlxz8-1::c-0": {
+      "html": ""
+    },
+    "r-mrxtlxz8-1::c-6": {
+      "html": "++++++++++++++++++"
+    },
+    "r-mrxtlxz8-1::c-7": {
+      "html": "+++++++++++++++++++<br>"
+    },
+    "r-mrxtlxz8-1::c-5": {
+      "html": "++++++++++++++++++<br>"
+    },
+    "r-mrxtlxz8-1::c-soul": {
+      "html": "+++++++++++++++"
+    }
+  },
+  "authorModel": 2,
+  "updatedAt": 1784923380271
+}

@@ -1,32 +1,27 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { motion } from "motion/react"
+import { useState } from "react"
 import { Search } from "lucide-react"
 import { UserIdentity } from "./user-identity"
-import { useZeroNav } from "@/lib/zero/nav-store"
-import { shellStageFor, HEADER_PAD_Y } from "@/lib/zero/layout"
-import { layerTransition } from "@/lib/zero/motion"
+import { WindowControls } from "./window-controls"
+import { UpdateIndicator } from "./update-indicator"
+import { VersionSwitcher } from "@/components/version-switcher"
+import { HEADER_H, HEADER_PAD_Y } from "@/lib/zero/layout"
+import { useNow } from "@/lib/zero/use-now"
 import { cn } from "@/lib/utils"
 
 function useClock() {
-  const [now, setNow] = useState<Date | null>(null)
-  useEffect(() => {
-    const update = () => setNow(new Date())
-    update()
-    // Tick every 30s so both the time and the date (e.g. crossing midnight)
-    // stay current without a refresh.
-    const id = setInterval(update, 1000 * 30)
-    return () => clearInterval(id)
-  }, [])
+  // Shared minute clock — same source as the Dayline NOW marker, so the header
+  // time and the marker tooltip never drift apart. `ms === 0` means not-yet-mounted.
+  const ms = useNow()
+  const now = ms ? new Date(ms) : null
 
   const time = now
     ? now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
     : ""
-  // Three-letter caps, e.g. "SAT" and "JUN 13" (month first, then day), to keep
-  // the bar compact.
+  // Full weekday in caps (e.g. "SATURDAY") with "JUN 13" (month first, then day).
   const weekday = now
-    ? new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(now).toUpperCase()
+    ? new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(now).toUpperCase()
     : ""
   const monthDay = now
     ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(now).toUpperCase()
@@ -37,15 +32,18 @@ function useClock() {
 
 export function ShellHeader() {
   const { time, weekday, monthDay } = useClock()
-  const { activeEntity } = useZeroNav()
-  // The header bar reacts to dive depth. The whole bar slides up a touch at
-  // stage 1 (first child) without any shrinking; it only compacts — avatar,
-  // handle, search, logo — at stage 2 (a second child open).
-  const stage = shellStageFor(activeEntity)
-  const compact = stage === 2
+  // Reveal the version switcher only when the right cluster is hovered/focused. Uses
+  // React state rather than Tailwind `group-hover` — the CSS hover variant is gated
+  // behind `@media (hover: hover)` in Tailwind v4 and doesn't fire reliably here (same
+  // reason CollapsibleColumn's rail hover is state-driven).
+  const [rightHover, setRightHover] = useState(false)
+  // entity0's header is now a CONSTANT-height full-bleed backdrop chrome — it no longer
+  // compacts on dive (the old shell-stage compaction was removed when entity0 was
+  // unified into the recursive ancestor model). Children always stick to entity0's
+  // fixed real View top, so no header shrink / window lift is needed.
 
   return (
-    <motion.header
+    <header
       // relative z-40 keeps the header's painted content (avatar, handle,
       // search, logo) ABOVE the timeline, which now bleeds upward into the
       // header row with z-30 at depth. The header has no background, so the
@@ -54,22 +52,24 @@ export function ShellHeader() {
       // areas to the timeline label / "Today" link underneath; the interactive
       // side clusters re-enable pointer events on themselves.
       //
-      // FIXED height (h-16, with constant vertical padding) is what makes the
-      // stage-2 compaction safe: the avatar/handle/search/logo shrink WITHIN this
-      // unchanging box, so the WorkSurface card below — and therefore the
-      // fixed-window region — never moves during a dive. (h-16 = avatar 36 + 2×14
-      // padding = the natural stage-0 height, so resting layout is unchanged.)
-      className="pointer-events-none relative z-40 flex h-16 items-center justify-between gap-4"
-      style={{ paddingTop: HEADER_PAD_Y, paddingBottom: HEADER_PAD_Y }}
-      initial={false}
-      // At stage 2 the bar rides UP a touch (transform — no reflow, so the work
-      // surface below stays put) and its side margins tighten, pulling the avatar
-      // and "zero" logo nearer the screen edges. Both ease with the shared morph.
-      animate={{ y: compact ? -16 : 0, paddingLeft: compact ? 10 : 20, paddingRight: compact ? 10 : 20 }}
-      transition={layerTransition}
+      // CONSTANT height (HEADER_H) + padding — the header no longer compacts on dive.
+      className="pointer-events-none relative z-40 flex items-center justify-between gap-4"
+      // The header doubles as the frameless window's drag handle (desktop). Empty
+      // areas drag the window; interactive clusters below opt out with no-drag.
+      style={{
+        WebkitAppRegion: "drag",
+        height: HEADER_H,
+        paddingTop: HEADER_PAD_Y,
+        paddingBottom: HEADER_PAD_Y,
+        paddingLeft: 20,
+        paddingRight: 20,
+      } as React.CSSProperties}
     >
-      <div className="pointer-events-auto flex flex-1 items-center">
-        <UserIdentity compact={compact} />
+      <div
+        className="pointer-events-auto flex flex-1 items-center"
+        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+      >
+        <UserIdentity />
       </div>
 
       {/* Time/date: weekday on the left, time at the dead center of the bar,
@@ -77,66 +77,62 @@ export function ShellHeader() {
           basis so the time stays optically centered regardless of their width. */}
       {/* Center date/time block inherits pointer-events-none from the header,
           so hovers fall through to the timeline label/link underneath. */}
-      <motion.div
-        className="hidden flex-1 items-center justify-center gap-3 sm:flex"
-        initial={false}
-        animate={{ fontSize: compact ? 12 : 13 }}
-        transition={layerTransition}
+      <div
+        className="hidden flex-1 items-center justify-center gap-3 text-[13px] sm:flex"
       >
         <span className="flex-1 truncate text-right tracking-tight text-muted-foreground">
           {weekday}
         </span>
         <span className="shrink-0 tabular-nums tracking-tight text-foreground/80">{time}</span>
         <span className="flex-1 truncate tracking-tight text-muted-foreground">{monthDay}</span>
-      </motion.div>
+      </div>
 
-      <div className="pointer-events-auto flex flex-1 items-center justify-end gap-3">
+      <div
+        className="pointer-events-auto flex flex-1 items-center justify-end gap-3"
+        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+        onPointerEnter={() => setRightHover(true)}
+        onPointerLeave={() => setRightHover(false)}
+        onFocus={() => setRightHover(true)}
+        onBlur={(e) => {
+          // Keep it revealed while focus stays within the cluster (keyboard users).
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) setRightHover(false)
+        }}
+      >
+        {/* Update pill (desktop only): stays hidden until a background update has
+            downloaded, then is always visible (not hover-gated) so the user can
+            restart to apply whenever they like. */}
+        <UpdateIndicator />
+        {/* Version switcher stays quiet until the right cluster is hovered (or something
+            in it is focused, for keyboard users). Opacity-only so it never shifts the
+            row's layout as it reveals. */}
+        <span
+          className={cn(
+            "transition-opacity duration-200",
+            rightHover ? "opacity-100" : "opacity-0",
+          )}
+        >
+          <VersionSwitcher />
+        </span>
         <button
           type="button"
           className={cn(
             "group flex items-center rounded-full px-2.5 py-1 text-muted-foreground transition-colors",
-            // When compact the field is just the magnifying glass — its border
-            // and fill are hidden and only reappear on hover, keeping the
-            // collapsed control quiet. Expanded, the bordered pill always shows.
-            compact
-              ? "border border-transparent hover:border-foreground/20 hover:text-foreground"
-              : "border border-border bg-card/60 hover:border-foreground/20 hover:text-foreground",
+            "hover:text-foreground",
           )}
           aria-label="Search"
         >
           <Search className="h-3 w-3 shrink-0" />
-          {/* The label collapses to zero when compact, leaving just the glass.
-              We animate a NUMERIC maxWidth (not width:"auto") on an
-              always-mounted element: animating to "auto" makes framer-motion
-              measure a target pixel width once, but the sibling "zero" logo
-              shrinks at the same time and reflows the row, so that measurement
-              goes stale and snaps on the final frame — the jump you saw. A
-              fixed numeric target springs cleanly and never re-measures. */}
-          <motion.span
-            className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap"
-            initial={false}
-            animate={{
-              maxWidth: compact ? 0 : 80,
-              opacity: compact ? 0 : 1,
-              paddingLeft: compact ? 0 : 6,
-            }}
-            transition={layerTransition}
-          >
-            <span className="hidden text-[11.5px] md:inline">Search</span>
-            <kbd className="hidden rounded border border-border px-1 py-0.5 font-mono text-[9px] text-muted-foreground/80 md:inline">
-              ⌘K
-            </kbd>
-          </motion.span>
         </button>
-        <motion.span
-          className="font-semibold tracking-tight text-foreground"
-          initial={false}
-          animate={{ fontSize: compact ? 16 : 20 }}
-          transition={layerTransition}
-        >
-          zero
-        </motion.span>
+        {/* Logo stays flush at the right edge; the window controls are stacked
+            ABOVE it (absolutely positioned) so they add no horizontal spacing,
+            and fade in only when the corner is hovered. */}
+        <div className="group relative flex items-center">
+          <WindowControls />
+          <span className="text-[20px] font-semibold tracking-tight text-foreground">
+            zero
+          </span>
+        </div>
       </div>
-    </motion.header>
+    </header>
   )
 }

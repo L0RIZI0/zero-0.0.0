@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Zero.WebViewSpike</AssemblyName>
+    <RootNamespace>Zero.WebViewSpike</RootNamespace>
+    <!-- Throwaway M0 ergonomics spike. NOT part of Zero's build or release. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Floating minor version: a throwaway spike should just pull the current SDK.
+         Pin this once we harden into the real resource host (M1). -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.*" />
+  </ItemGroup>
+
+</Project>

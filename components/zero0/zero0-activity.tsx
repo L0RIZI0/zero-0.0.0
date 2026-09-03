@@ -1,0 +1,677 @@
+"use client"
+
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { ROOT_ID, getEntity, getInheritedAccent } from "@/lib/zero/data"
+import { titleAt } from "@/lib/zero/entity-log"
+import {
+  useActivityRevision,
+  getDayRollup,
+  getSegmentsForDay,
+  clearActivityLog,
+  recordAccess,
+  type DaySegment,
+  type SpaceRollup,
+} from "@/lib/zero/activity-log"
+import { Zero0Face } from "@/components/zero0/zero0-face"
+import { Zero0Dayline, type DaylineOccRef } from "@/components/zero0/zero0-dayline"
+import { Zero0DaylineView } from "@/components/zero0/zero0-dayline-view"
+import { Zero0Calendar } from "@/components/zero0/zero0-calendar"
+import { MorphOverlay, captureCells, type MorphCell } from "@/components/zero0/zero0-morph-overlay"
+import { Zero0FrameMarker } from "@/components/zero0/zero0-frame-marker"
+import { useZero0Readout, toggleZero0Readout } from "@/lib/zero/zero0-chord"
+import { formatLocale } from "@/lib/zero/format-locale"
+import { useGatedNow } from "@/lib/zero/use-gated-now"
+import type { EntityKind } from "@/lib/zero/types"
+
+/** localStorage key for the persisted dayline view settings (axis mode + rail visibility), v0.2.346. */
+const DAYLINE_VIEW_KEY = "zero0.dayline.view"
+
+/** Clock time (HH:MM) for a segment edge. Client-only (called under `mounted`). */
+function clock(epoch: number): string {
+  return new Date(epoch).toLocaleTimeString(formatLocale(), { hour: "2-digit", minute: "2-digit" })
+}
+
+/**
+ * Compact human duration with SECONDS granularity (ported from /2's §3): "1h 20m",
+ * "5m 12s", "45s". Keeping seconds is what makes the OPEN segment visibly count up.
+ */
+function dur(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (h > 0) return `${h}h ${m}m`
+  if (m > 0) return `${m}m ${sec}s`
+  return `${sec}s`
+}
+
+/** The kind of a place id, for its glyph. Defaults to space (the container kind). */
+function kindOf(id: string): EntityKind {
+  return getEntity(id)?.kind ?? "space"
+}
+
+/**
+ * A place's OWN color for its bar: its `accent` (set via `:color:` on ANY kind — so a
+ * blue Moment reads blue), else the nearest ancestor SPACE accent, else undefined
+ * (⇒ the white+hairline fallback). Mirrors the dayline's planned-bar rule; note
+ * `getInheritedAccent` alone only sees SPACE accents, so we check the node itself first.
+ */
+function accentOf(id: string): string | undefined {
+  const e = getEntity(id)
+  return e?.color ?? getInheritedAccent(e?.parentId ?? null)
+}
+
+/** Title a place had AT `epoch` — folds titleLog so a past segment reads with its name
+ *  then, not today's. Falls back to the current title / a friendly root label. */
+function titleForAt(id: string, epoch: number): string {
+  const e = getEntity(id)
+  if (e) return titleAt(e, epoch)
+  if (id === ROOT_ID) return "Home"
+  return id
+}
+
+/**
+ * AGENDA frame (root `/0`) — the FORWARD-looking band: what is PLANNED today. Just a
+ * frame title over the PLANNED dayline (scheduled occurrences, fluid pan/ripple + live
+ * NOW marker). Split off from ACTIVITY (Jul 2026) so planning and access are two
+ * independent, separately-toggled frames. No `clear` — that belongs to the access log.
+ */
+export function Zero0Agenda({
+  onOpen,
+  onContextMenuEntity,
+  onOccurrenceMenu,
+  onSessionMenu,
+  onOccurrenceRetime,
+  onSessionRetime,
+  onFrameMenu,
+  onToggleMinimize,
+  minimized = false,
+  hideBottomBorder = false,
+  dataRev,
+  highlightId = null,
+}: {
+  onOpen: (id: string) => void
+  /** Right-click a planned tick → the entity menu for that occurrence. */
+  onContextMenuEntity?: (id: string, ev: React.MouseEvent) => void
+  /** Right-click a TOP-rail tick → the PER-OCCURRENCE menu (Edit time / Cancel / Delete). Only the
+   *  agenda dayline has a top rail, so only this component forwards it (v0.2.249). */
+  onOccurrenceMenu?: (
+    entityId: string,
+    occ: NonNullable<DaylineOccRef>,
+    ev: React.MouseEvent,
+  ) => void
+  /** Right-click a BOTTOM-rail (recorded) tick with a session anchor → the PER-SESSION menu (Edit time /
+   *  Delete), keyed by anchor id (v0.2.293). Bottom-rail mirror of onOccurrenceMenu; forwarded to the dayline. */
+  onSessionMenu?: (entityId: string, anchorId: number, ev: React.MouseEvent) => void
+  /** Drag a planned tick's edge / body → commit its new start/end (v0.2.286). Forwarded to the dayline. */
+  onOccurrenceRetime?: (
+    entityId: string,
+    occ: NonNullable<DaylineOccRef>,
+    start: number,
+    end: number,
+  ) => void
+  /** Drag a RECORDED tick's edge / body → commit its new start/end (v0.2.294), keyed by anchor id.
+   *  Bottom-rail mirror of onOccurrenceRetime; forwarded to the dayline. */
+  onSessionRetime?: (entityId: string, anchorId: number, start: number, end: number) => void
+  /** Right-click the frame chrome (header / empty area) → the frame menu (minimize). */
+  onFrameMenu?: (frame: "agenda" | "activity", ev: React.MouseEvent) => void
+  /** Toggle minimize/maximize directly (LEFT-click): the chevron in the maximized title,
+   *  and a click on the minimized band's empty area (not a tick). */
+  onToggleMinimize?: () => void
+  /** When minimized, render ONLY the dayline band (with its day-label header) — no frame
+   *  title, no border, tight margins. Click empty area (or right-click) → maximize. */
+  minimized?: boolean
+  /** Drop the bottom separator when the frame below (ACTIVITY) is ALSO a minimized band,
+   *  so the two merge into one grouped strip. */
+  hideBottomBorder?: boolean
+  dataRev: number
+  /** Entity focused elsewhere on the canvas — its ticks light up. Passed to the dayline. */
+  highlightId?: string | null
+}) {
+  // EXPAND-TO-CALENDAR (v0.2.313). A click on empty MAXIMIZED dayline area expands the frame IN PLACE
+  // into a multi-day calendar centered on the dayline window's center time; an empty click on the
+  // calendar collapses it back. The transition MORPHS: dayline ticks fly to their calendar block
+  // positions (and back), spanning time vertically instead of horizontally, while the frame height
+  // grows/shrinks on the same clock (see MorphOverlay + captureCells, which key off the shared
+  // data-barkey/data-calkey identity).
+  const [expanded, setExpanded] = useState(false)
+  const [centerTime, setCenterTime] = useState(() => Date.now())
+  // Calendar height — big enough for a comfortable grid, capped to leave room for the frames below.
+  const [calH, setCalH] = useState(560)
+  useEffect(() => {
+    if (!expanded) return
+    const compute = () => setCalH(Math.max(420, Math.min(760, window.innerHeight - 220)))
+    compute()
+    window.addEventListener("resize", compute)
+    return () => window.removeEventListener("resize", compute)
+  }, [expanded])
+
+  // Morph machinery. `morph` holds the in-flight transition (null when idle). We keep BOTH views mounted
+  // during a morph (dayline hidden while expanding, calendar hidden while collapsing) so we can measure
+  // the destination rects, then the MorphOverlay flies clones between the captured from/to geometries.
+  const MORPH_MS = 400
+  const daylineHostRef = useRef<HTMLDivElement>(null)
+  const calHostRef = useRef<HTMLDivElement>(null)
+  const morphHostRef = useRef<HTMLDivElement>(null)
+  const [morph, setMorph] = useState<null | {
+    phase: "expand" | "collapse"
+    from: Map<string, MorphCell>
+    to: Map<string, MorphCell>
+    fromH: number
+    toH: number
+  }>(null)
+  // Pending capture from the click handler that opened/closed — resolved into a full morph once the
+  // destination view has mounted + laid out (in the layout effect below).
+  const pendingRef = useRef<null | { phase: "expand" | "collapse"; from: Map<string, MorphCell>; fromH: number }>(null)
+
+  const startExpand = (center: number) => {
+    if (morph || minimized) return
+    const from = captureCells(daylineHostRef.current, "data-barkey")
+    const fromH = daylineHostRef.current?.getBoundingClientRect().height ?? 120
+    pendingRef.current = { phase: "expand", from, fromH }
+    setCenterTime(center)
+    setExpanded(true) // mounts the calendar; layout effect finishes the morph
+  }
+  const startCollapse = () => {
+    if (morph) return
+    const from = captureCells(calHostRef.current, "data-calkey")
+    const fromH = calHostRef.current?.getBoundingClientRect().height ?? calH
+    pendingRef.current = { phase: "collapse", from, fromH }
+    setExpanded(false) // mounts the dayline; layout effect finishes the morph
+  }
+
+  // Resolve a pending capture into a running morph once the destination view is mounted.
+  useLayoutEffect(() => {
+    const pend = pendingRef.current
+    if (!pend) return
+    pendingRef.current = null
+    if (pend.phase === "expand") {
+      const to = captureCells(calHostRef.current, "data-calkey")
+      const toH = calHostRef.current?.getBoundingClientRect().height ?? calH
+      setMorph({ phase: "expand", from: pend.from, to, fromH: pend.fromH, toH })
+    } else {
+      const to = captureCells(daylineHostRef.current, "data-barkey")
+      const toH = daylineHostRef.current?.getBoundingClientRect().height ?? 120
+      setMorph({ phase: "collapse", from: pend.from, to, fromH: pend.fromH, toH })
+    }
+  }, [expanded, calH])
+
+  // A minimized frame can never be expanded; collapse it (no morph — minimize is its own transition).
+  useEffect(() => {
+    if (minimized && expanded) {
+      setExpanded(false)
+      setMorph(null)
+      pendingRef.current = null
+    }
+  }, [minimized, expanded])
+
+  /**
+   * DAYLINE VIEW SETTINGS (v0.2.346) — axis mode + which rails are shown, all controlled from the band's
+   * right-click menu and PERSISTED per uzer.
+   *
+   * FISHEYE IS NOW THE DEFAULT (it was an opt-in experiment in .345). The access spine and the recorded
+   * session rail default to HIDDEN, so the resting band is the planned rail alone, centered.
+   *
+   * Read lazily from localStorage inside the initializer so the value is there on the FIRST paint — a
+   * `useEffect` hydration would render one frame of defaults and visibly flip the axis. Writes are guarded
+   * in a try/catch because localStorage throws in private-mode Safari, and a settings write must never be
+   * able to take down the dayline.
+   */
+  const [view, setView] = useState<{ horizon: boolean; access: boolean; session: boolean }>(() => {
+    const fallback = { horizon: true, access: false, session: false }
+    if (typeof window === "undefined") return fallback
+    try {
+      const raw = window.localStorage.getItem(DAYLINE_VIEW_KEY)
+      if (!raw) return fallback
+      const p = JSON.parse(raw) as Partial<typeof fallback>
+      return {
+        horizon: typeof p.horizon === "boolean" ? p.horizon : fallback.horizon,
+        access: typeof p.access === "boolean" ? p.access : fallback.access,
+        session: typeof p.session === "boolean" ? p.session : fallback.session,
+      }
+    } catch {
+      return fallback
+    }
+  })
+  const persistView = useCallback((next: { horizon: boolean; access: boolean; session: boolean }) => {
+    setView(next)
+    try {
+      window.localStorage.setItem(DAYLINE_VIEW_KEY, JSON.stringify(next))
+    } catch {
+      /* private-mode Safari — keep the in-memory value, just don't persist it */
+    }
+  }, [])
+  const horizon = view.horizon
+  const showAccessRail = view.access
+  const showSessionRail = view.session
+  // Mirror so the setters below don't need `view` as a dep (which would give them a new identity on every
+  // settings change and defeat the Dayline's memoized children). Declared BEFORE them to avoid a TDZ read.
+  const viewRef = useRef(view)
+  viewRef.current = view
+  const setHorizon = useCallback(
+    (next: boolean) => persistView({ ...viewRef.current, horizon: next }),
+    [persistView],
+  )
+  const setRailVisible = useCallback(
+    (rail: "access" | "session", next: boolean) => persistView({ ...viewRef.current, [rail]: next }),
+    [persistView],
+  )
+
+  const morphing = morph !== null
+  // Which real views are in the tree. During a morph both are mounted; the one being animated FROM/TO is
+  // hidden (the overlay stands in). Steady state shows exactly one.
+  const showCalendar = (expanded || morphing) && !minimized
+  const showDayline = !expanded || morphing || minimized
+
+  return (
+    <section
+      aria-label="Today"
+      className="relative"
+      onContextMenu={onFrameMenu ? (ev) => onFrameMenu("agenda", ev) : undefined}
+    >
+      {/* Morph host — during a transition its height is animated by the MorphOverlay (fromH→toH) and it
+          clips overflow; at rest it is auto-height and shows exactly one view. Both children are kept
+          mounted (but hidden) mid-morph so the overlay can measure destination rects and stand in. */}
+      <div
+        ref={morphHostRef}
+        className="relative"
+        style={morphing ? { height: morph!.fromH, overflow: "hidden" } : undefined}
+      >
+        {/* Frame TITLE bar REMOVED (v0.2.287) — the maximized frame is now JUST the dayline/calendar. */}
+        {showCalendar && (
+          <div
+            ref={calHostRef}
+            style={morphing ? { opacity: 0, pointerEvents: "none" } : undefined}
+            aria-hidden={morphing || undefined}
+          >
+            <Zero0Calendar
+              centerTime={centerTime}
+              height={calH}
+              onOpen={onOpen}
+              onEmptyClick={startCollapse}
+              onContextMenuEntity={onContextMenuEntity}
+              onOccurrenceMenu={onOccurrenceMenu}
+              onSessionMenu={onSessionMenu}
+              onOccurrenceRetime={onOccurrenceRetime}
+              onSessionRetime={onSessionRetime}
+              dataRev={dataRev}
+              highlightId={highlightId}
+            />
+          </div>
+        )}
+        {/* The dayline band. When minimized, a LEFT-click on empty area (not a tick) maximizes the frame.
+            When MAXIMIZED, an empty-area click expands into the calendar (onEmptyClick → startExpand). */}
+        {showDayline && (
+          <div
+            ref={daylineHostRef}
+            className={minimized ? "relative cursor-pointer" : "relative"}
+            style={morphing ? { opacity: 0, pointerEvents: "none" } : undefined}
+            aria-hidden={morphing || undefined}
+            onClick={
+              minimized && onToggleMinimize
+                ? (ev) => {
+                    if (!(ev.target as HTMLElement).closest("[data-barkey]")) onToggleMinimize()
+                  }
+                : undefined
+            }
+          >
+            {/* v0.2.348 — the CANVAS dayline (external engine behind @zero/dayline-contract) is now the
+                single main dayline. The legacy DOM linear/fisheye renderer (Zero0Dayline tracks="both")
+                is retired here; the engine owns its own axis, so `horizon`/`onToggleAxis` are gone. The
+                access tracker below still uses the legacy component. */}
+            <Zero0DaylineView
+              onOpen={onOpen}
+              onOccurrenceMenu={onOccurrenceMenu}
+              onSessionMenu={onSessionMenu}
+              onOccurrenceRetime={onOccurrenceRetime}
+              onSessionRetime={onSessionRetime}
+              dataRev={dataRev}
+              minimized={minimized}
+              hideBottomBorder={hideBottomBorder}
+              showAccessRail={showAccessRail}
+              showSessionRail={showSessionRail}
+              onToggleRail={setRailVisible}
+            />
+            {/* v0.2.346 — the inline axis toggle used to live here. It moved INTO the band's right-click
+                menu (Axis → Linear/Fisheye) together with the new rail toggles: at `-bottom-4` it fell
+                outside the frame's `overflow-hidden` collapse wrapper and was clipped into invisibility,
+                and view settings belong in one discoverable place rather than as a floating dev button. */}
+          </div>
+        )}
+      </div>
+      {morph && (
+        <MorphOverlay
+          from={morph.from}
+          to={morph.to}
+          duration={MORPH_MS}
+          heightHost={morphHostRef}
+          fromH={morph.fromH}
+          toH={morph.toH}
+          onDone={() => setMorph(null)}
+        />
+      )}
+      {/* The §x corner affordance is chrome — hide it on a minimized band (which is meant
+          to be nothing but the dayline). Re-show via the § chord or the footer link. */}
+      {!minimized && <Zero0FrameMarker flag="agenda" label="the agenda" />}
+    </section>
+  )
+}
+
+/**
+ * ACTIVITY frame (root `/0`) — the BACKWARD-looking band: WHERE the user has been today,
+ * fed by the isolated access log (`zero:root-activity:v1`). Frame title (+ the `clear`
+ * action) over the ACCESS dayline, which is ALWAYS shown while the frame is open; the
+ * `§ 3` chord hides only the textual DETAILS (rollup + feed) below it. The per-second
+ * live counting lives in {@link ActivityBody} so the toggle chrome here is cheap.
+ */
+export function Zero0Activity({
+  onOpen,
+  onContextMenuEntity,
+  onFrameMenu,
+  minimized = false,
+  dataRev,
+  currentContextId,
+  highlightId = null,
+}: {
+  onOpen: (id: string) => void
+  /** Right-click a rollup/feed row OR an access tick → the entity menu for that place. */
+  onContextMenuEntity?: (id: string, ev: React.MouseEvent) => void
+  /** Right-click the frame chrome (header / empty area) → the frame menu (minimize). */
+  onFrameMenu?: (frame: "agenda" | "activity", ev: React.MouseEvent) => void
+  /** When minimized, render ONLY the access dayline (with its "x tracked" total) — no
+   *  frame title, no details, no border, tight margins. Right-click → maximize. */
+  minimized?: boolean
+  dataRev: number
+  /** The canvas's current place — re-seeded into the log right after a clear, so the
+   *  tracker keeps recording (a bare `clearActivityLog` would leave it idle). */
+  currentContextId: string
+  /** Entity focused elsewhere on the canvas — its access ticks light up. */
+  highlightId?: string | null
+}) {
+  // Time formatting is client-only; gate to avoid an SSR/static-export hydration trap.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  // Re-render on structural log changes (segments are mutated in place).
+  useActivityRevision()
+  // `§ 3` chord: hide/show just the textual DETAILS — the access dayline stays put.
+  const detailsVisible = useZero0Readout()
+
+  if (!mounted) {
+    return (
+      <div className="border-b border-border px-4 py-3 text-[11px] text-muted-foreground tabular-nums">
+        activity · loading…
+      </div>
+    )
+  }
+
+  return (
+    <section
+      aria-label="Activity today"
+      className="relative"
+      onContextMenu={onFrameMenu ? (ev) => onFrameMenu("activity", ev) : undefined}
+    >
+      {/* FRAME TITLE — "activity · today" heading, carrying the frame-level `clear`
+          action. The tracked total lives on the ACCESS dayline row below, not here.
+          Its divider is INSET + lighter (see AGENDA) so within-frame divisions stay
+          distinct from the full-bleed FRAME separators. Hidden while minimized. */}
+      {!minimized && (
+        <div className="relative flex items-center justify-between px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-['']">
+          <span>activity · today</span>
+          <button
+            type="button"
+            onClick={() => {
+              // Wipe the log, then IMMEDIATELY re-open a segment for where we are now —
+              // otherwise `clearActivityLog` nulls the current place and, since the canvas
+              // only records on a context CHANGE, the tracker would sit idle (0s, no bars)
+              // until the next drill. This keeps it live: cleared, then counting again.
+              clearActivityLog()
+              recordAccess(currentContextId)
+            }}
+            className="normal-case text-muted-foreground/60 transition-colors hover:text-foreground"
+            aria-label="Clear today's activity log"
+          >
+            clear
+          </button>
+        </div>
+      )}
+      <ActivityBody
+        onOpen={onOpen}
+        onContextMenuEntity={onContextMenuEntity}
+        dataRev={dataRev}
+        showDetails={detailsVisible}
+        minimized={minimized}
+        highlightId={highlightId}
+      />
+      {/* §x corner affordance hidden on a minimized band (chrome-free). */}
+      {!minimized && <Zero0FrameMarker flag="activity" label="the activity frame" />}
+    </section>
+  )
+}
+
+/**
+ * The LIVE textual readout — a per-place ROLLUP (proportional bars + running totals)
+ * and a recent-SEGMENTS feed. Holds its own 1-second clock so the CURRENT (open)
+ * segment's duration, its bar width, and the "tracked" total all count up in real time,
+ * exactly like /2's §3 inspector. Isolated from the dayline so the tick is cheap.
+ */
+/**
+ * A tiny dep-free FLIP animator for the rollup list. Give it a ref to the list
+ * container; every row inside must carry a `data-flip-id`. After each render it
+ * measures each row's top, and for any row whose position changed since the last
+ * render it plays the FLIP: snap back to the OLD top (no transition), then on the
+ * next frame release to the new top with an eased transition — so when a place
+ * accumulates enough time to overtake a sibling, it slides past instead of jumping.
+ * Querying the DOM by attribute (rather than per-row refs) avoids ref churn from the
+ * once-a-second re-render. Kept manual on purpose: zero0 stays free of the `motion`
+ * dependency the rest of the app uses.
+ *
+ * Tops are measured RELATIVE TO THE LIST CONTAINER, not the viewport. Otherwise any
+ * ANCESTOR layout shift — e.g. collapsing/expanding the AGENDA frame above, which
+ * slides this whole list up/down — would change every row's absolute top and fire a
+ * bogus FLIP on each frame of that animation (the "bars jump / re-animate" bug). With
+ * a container-relative offset, the list and its rows move together, so only a genuine
+ * INTRA-list reorder produces a non-zero delta.
+ */
+function useFlipList(listRef: React.RefObject<HTMLElement | null>) {
+  const prevTops = useRef(new Map<string, number>())
+  useLayoutEffect(() => {
+    const list = listRef.current
+    if (!list) return
+    const listTop = list.getBoundingClientRect().top
+    const rows = list.querySelectorAll<HTMLElement>("[data-flip-id]")
+    const nextTops = new Map<string, number>()
+    rows.forEach((el) => nextTops.set(el.dataset.flipId!, el.getBoundingClientRect().top - listTop))
+    rows.forEach((el) => {
+      const id = el.dataset.flipId!
+      const prev = prevTops.current.get(id)
+      const next = nextTops.get(id)
+      if (prev == null || next == null || prev === next) return
+      const delta = prev - next
+      el.style.transition = "none"
+      el.style.transform = `translateY(${delta}px)`
+      requestAnimationFrame(() => {
+        el.style.transition = "transform 320ms cubic-bezier(0.22, 1, 0.36, 1)"
+        el.style.transform = ""
+      })
+    })
+    prevTops.current = nextTops
+  })
+}
+
+function ActivityBody({
+  onOpen,
+  onContextMenuEntity,
+  dataRev,
+  showDetails,
+  minimized = false,
+  highlightId = null,
+}: {
+  onOpen: (id: string) => void
+  /** Right-click a rollup/feed row → the entity menu for that place. */
+  onContextMenuEntity?: (id: string, ev: React.MouseEvent) => void
+  dataRev: number
+  /** `§ 3` — whether the textual rollup/feed DETAILS show. The access dayline is
+   *  always rendered regardless, so ACTIVITY still shows ACCESS when details hide. */
+  showDetails: boolean
+  /** When minimized, render ONLY the access dayline (keeping the live "x tracked"
+   *  total) — no details, no toggle, no bottom border. */
+  minimized?: boolean
+  /** Entity focused elsewhere on the canvas — its access ticks light up. */
+  highlightId?: string | null
+}) {
+  const listRef = useRef<HTMLDListElement>(null)
+  useFlipList(listRef)
+  // Structural changes here too (so a place switch refreshes immediately, not only on
+  // the next whole-second tick).
+  useActivityRevision()
+  // Gated 1s clock — pauses during a dayline pan/drag so its re-scan of the activity log doesn't
+  // steal a frame from the engine's rAF (the ~1s pan stutter). Catches up on release.
+  const now = useGatedNow(1000)
+
+  // Feed `now` through so the OPEN segment's effective end tracks the live clock.
+  const rollup: SpaceRollup[] = getDayRollup(now, now)
+  const segments: DaySegment[] = getSegmentsForDay(now, now)
+  const trackedMs = rollup.reduce((sum, r) => sum + r.totalMs, 0)
+  const recent = segments.slice(-12).reverse() // newest first, capped
+  // The current place = the open segment (leftAt === null), if any.
+  const openId = segments.length > 0 && segments[segments.length - 1].leftAt === null
+    ? segments[segments.length - 1].entityId
+    : null
+
+  return (
+    // Always keep the bottom divider — even minimized — so ACTIVITY stays visually
+      // separated from the next frame (ZERO HEADER). The access dayline never carries its
+    // own border, so this wrapper is the sole separator.
+    <div className="border-b border-border">
+      {/* The dedicated ACCESS dayline — tracked activity ("where I was"), ALWAYS shown
+          while the ACTIVITY frame is open. Carries the "x tracked" total in its header
+          (next to the "access · today" label). Right-click a tick → the entity menu.
+          When minimized, the total overlays inside the band (see Zero0Dayline). */}
+      <Zero0Dayline
+        onOpen={onOpen}
+        onContextMenuEntity={onContextMenuEntity}
+        dataRev={dataRev}
+        tracks="access"
+        trailing={`${dur(trackedMs)} tracked`}
+        minimized={minimized}
+        highlightId={highlightId}
+      />
+
+      {/* Access tracker DETAILS — per-place rollup + recent-segments feed. Gated by
+          `§ 3` (showDetails) AND hidden while minimized; the access dayline above stays
+          regardless. */}
+      {!minimized && showDetails && (
+      <div className="px-4 pb-3 pt-1 text-[11px] leading-relaxed tabular-nums">
+        {segments.length === 0 ? (
+          <p className="text-muted-foreground/60">— no access recorded yet —</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {/* ROLLUP — per-place totals with live proportional bars. */}
+            <dl ref={listRef} className="space-y-1">
+            {rollup.map((r) => {
+              const pct = trackedMs > 0 ? (r.totalMs / trackedMs) * 100 : 0
+              const isOpen = r.entityId === openId
+              // A bar is TINTED only when the user actually chose a color (via `:color:`,
+              // own or inherited). Otherwise it's the plain monochrome `bg-foreground`
+              // (dark on light, light on dark). The out-of-focus place fades to half.
+              const accent = accentOf(r.entityId)
+              return (
+                <div key={r.entityId} data-flip-id={r.entityId} className="flex items-center gap-2">
+                  {/* The place as an XS Face — a neutral kind glyph + its (current) title.
+                      A rollup is ACCESS, not the entity's lifecycle, so the Face is a
+                      projection (faceLike); the bar + duration below stay Content-side. */}
+                  <Zero0Face
+                    size="xs"
+                    faceLike={{ kind: kindOf(r.entityId), title: titleForAt(r.entityId, Date.now()) }}
+                    onActivate={() => onOpen(r.entityId)}
+                    onActivateContextMenu={
+                      onContextMenuEntity ? (ev) => onContextMenuEntity(r.entityId, ev) : undefined
+                    }
+                    titleClassName="w-24 shrink-0"
+                  />
+                  {/* Live proportional bar — the open place's fill grows each second.
+                      Tinted to the user-chosen color if any, else plain foreground. */}
+                  <span className="relative h-1.5 flex-1 overflow-hidden rounded-[2px] bg-muted">
+                    <span
+                      className={
+                        "absolute inset-y-0 left-0 rounded-[2px] transition-[width] duration-1000 ease-linear " +
+                        (accent ? "" : "bg-foreground")
+                      }
+                      style={{
+                        width: `${pct}%`,
+                        backgroundColor: accent ?? undefined,
+                        opacity: isOpen ? 1 : 0.5,
+                      }}
+                    />
+                  </span>
+                  {/* Duration is content-width, nowrap, and the LAST flex child, so its
+                      right edge pins to the frame while the flex-1 bar absorbs any
+                      width change. This kills the old bugs: no fixed cell for the live
+                      "·" to wrap out of, and a ticking single→double digit no longer
+                      shifts the row — only the one open bar breathes by ~1 char. */}
+                  <span className="shrink-0 whitespace-nowrap text-muted-foreground">
+                    {dur(r.totalMs)}
+                    {isOpen ? " ·" : ""}
+                  </span>
+                </div>
+              )
+            })}
+          </dl>
+
+          {/* FEED — recent segments, newest first, each with the historical title. The
+              current (open) segment is marked with a filled dot + a trailing "·". */}
+          <ol className="space-y-1">
+            {recent.map((s, i) => {
+              const isOpen = s.leftAt === null
+              return (
+                <li key={`${s.entityId}-${s.startAt}-${i}`} className="flex items-center gap-2">
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                      isOpen ? "bg-foreground" : "bg-muted-foreground/40"
+                    }`}
+                    aria-hidden
+                  />
+                  <span className="shrink-0 text-muted-foreground/50">{clock(s.startAt)}</span>
+                  {/* The visited place as an XS Face — using the AS-OF title (its name at
+                      the time of the visit, resolved by titleForAt). Projection, like the
+                      rollup; the leading dot + clock and trailing duration stay Content-side. */}
+                  <Zero0Face
+                    size="xs"
+                    faceLike={{ kind: kindOf(s.entityId), title: titleForAt(s.entityId, s.startAt) }}
+                    onActivate={() => onOpen(s.entityId)}
+                    onActivateContextMenu={
+                      onContextMenuEntity ? (ev) => onContextMenuEntity(s.entityId, ev) : undefined
+                    }
+                  />
+                  <span className="shrink-0 whitespace-nowrap text-muted-foreground">
+                    {dur(s.durationMs)}
+                    {isOpen ? " ·" : ""}
+                  </span>
+                </li>
+              )
+            })}
+          </ol>
+        </div>
+      )}
+      </div>
+      )}
+
+        {/* DETAILS toggle — shows/hides just the rollup+feed; the access dayline above
+          always stays. Always rendered so it's reversible by click even when the details
+          are hidden. (No § chord — §2 now toggles the whole ACTIVITY frame instead.)
+          Hidden while minimized — the compact render is the bare dayline. */}
+      {!minimized && (
+        <div className="px-4 pb-2 pt-1.5">
+          <button
+            type="button"
+            onClick={() => toggleZero0Readout()}
+            className="text-[10px] text-muted-foreground/60 transition-colors hover:text-foreground"
+            title="Show or hide the activity details"
+          >
+            {showDetails ? "hide details" : "show details"}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}

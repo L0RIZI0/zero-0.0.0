@@ -11,6 +11,30 @@ contextBridge.exposeInMainWorld("zero", {
   isDesktop: true,
   platform: process.platform,
 
+  /** The OS date/time FORMAT locale (e.g. "en-FR"), resolved in main from the
+   *  system language + region country code. Electron's V8 defaults Intl to en-US
+   *  regardless of OS, so the renderer passes THIS to every toLocale* call to honor
+   *  the device's region / 24h settings. Null if it couldn't be resolved. */
+  locale: (() => {
+    try {
+      return ipcRenderer.sendSync("zero:locale")
+    } catch {
+      return null
+    }
+  })(),
+
+  /** The REAL running build version (`app.getVersion()`, e.g. "0.2.196"), resolved
+   *  synchronously at load so the header shows the TRUE shipped version instead of the
+   *  hand-maintained web `ZERO_VERSION` constant (which drifted out of step twice). Null
+   *  if it couldn't be read. */
+  appVersion: (() => {
+    try {
+      return ipcRenderer.sendSync("zero:app-version")
+    } catch {
+      return null
+    }
+  })(),
+
   // ── STEP 2 anchor: native resource host ──────────────────────────────────
   // These are the calls ResourceCanvas will use once the native view lands in
   // main. They are safe no-op-ish stubs today (main doesn't handle them yet), so
@@ -20,13 +44,160 @@ contextBridge.exposeInMainWorld("zero", {
     mount: (args) => ipcRenderer.invoke("zero:resource:mount", args),
     /** Stream the placeholder's new rect (on resize/scroll) so the view tracks it. */
     setBounds: (args) => ipcRenderer.send("zero:resource:set-bounds", args),
-    /** Tear the native view down when the task closes/unmounts. */
+    /** Drill AWAY: park the view (hidden + throttled, kept warm for instant re-open). */
+    park: (id) => ipcRenderer.send("zero:resource:park", id),
+    /** Explicit CLOSE (header × button): destroy the view for good, ignoring the cap. */
+    close: (id) => ipcRenderer.send("zero:resource:close", id),
+    /** Legacy teardown alias; main now treats it as PARK. Prefer park()/close(). */
     unmount: (id) => ipcRenderer.send("zero:resource:unmount", id),
+    /** PRE-WARM: create + start loading a resource's native view HIDDEN (off-screen), so a later drill-in
+     *  reveals a warm view instead of paying the ~330ms cold controller create. Same id as mount() so the
+     *  drill-in reveal is idempotent. No-op on web / non-WebView2. */
+    prewarm: (args) => ipcRenderer.invoke("zero:resource:prewarm", args),
+    /** Discard a pre-warmed-but-never-opened view to bound memory (e.g. on leaving its context). */
+    discardPrewarm: (id) => ipcRenderer.send("zero:resource:discard-prewarm", id),
+    /** Hand keyboard focus back to Zero's own UI when a Zero input is focused while a webview is displayed
+     *  above it. Cross-process: asks the native host to SetFocus back to Electron. No-op in web builds. */
+    releaseFocus: () => ipcRenderer.send("zero:resource:release-focus"),
+    /** Tell the native host which color scheme Zero's light/dark toggle is on, so web content's default
+     *  context menu matches Zero instead of the OS. Applies to all live + later-mounted views. */
+    setTheme: (mode) => ipcRenderer.send("zero:resource:set-theme", mode),
     /** Subscribe to outputs the resource produces (exports/downloads) → Outputs. */
     onOutput: (cb) => {
       const handler = (_e, payload) => cb(payload)
       ipcRenderer.on("zero:resource:output", handler)
       return () => ipcRenderer.removeListener("zero:resource:output", handler)
+    },
+    /** Load status per task: { id, ok, detail } — drives snap-in vs error overlay. */
+    onStatus: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on("zero:resource:status", handler)
+      return () => ipcRenderer.removeListener("zero:resource:status", handler)
+    },
+    /** Main-frame URL changes per task: { id, url } — lets the renderer persist the
+     *  last-visited page so reopening a closed resource resumes where you left off. */
+    onNavigated: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on("zero:resource:navigated", handler)
+      return () => ipcRenderer.removeListener("zero:resource:navigated", handler)
+    },
+    /** A right-click landed INSIDE the native web view (the DOM never sees it). Main
+     *  reports { id, x, y } in main-window CLIENT coords so the renderer can build the
+     *  entity menu for that resource and draw it via the overlay. */
+    onContextMenu: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on("zero:resource:contextmenu", handler)
+      return () => ipcRenderer.removeListener("zero:resource:contextmenu", handler)
+    },
+    /** The user interacted INSIDE the native web view (pointer/keys/wheel) — the Zero DOM behind it
+     *  never sees it. Payload { id }. Lets the renderer mark alive + resume that resource's ongoing
+     *  session after an away-gap, since the DOM-based resume can't fire over the webview (v0.2.307). */
+    onActivity: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on("zero:resource:activity", handler)
+      return () => ipcRenderer.removeListener("zero:resource:activity", handler)
+    },
+  },
+
+  /** Context menu over an open website → a NATIVE OS menu (`Menu.popup()` in main). You
+   *  cannot float custom HTML over a native WebContentsView, so over a site we hand main a
+   *  generic MenuItem tree + a client-space anchor and it pops a native menu, echoing the
+   *  chosen action id back via `onSelected`. Used only when a web Resource is open;
+   *  otherwise the renderer draws its own styled in-DOM menu. */
+  menu: {
+    /** Pop a native menu at { x, y } (client coords) from { items }. */
+    open: (payload) => ipcRenderer.send("zero:menu:open", payload),
+    /** The chosen action id (or a "sibling:<id>" / "crumb:<id>" nav id). */
+    onSelected: (cb) => {
+      const handler = (_e, actionId) => cb(actionId)
+      ipcRenderer.on("zero:menu:selected", handler)
+      return () => ipcRenderer.removeListener("zero:menu:selected", handler)
+    },
+  },
+  /** Open a URL in the user's real external browser (graceful fallback). */
+  openExternal: (url) => ipcRenderer.send("zero:open-external", url),
+
+  /** Device-level presence signals. */
+  system: {
+    /** Seconds since the last OS-WIDE user input (across all apps), via powerMonitor. The renderer's
+     *  liveness heartbeat uses this so ongoing sessions survive while the device is in use even when
+     *  Zero is unfocused, and end only after the whole device is idle. Resolves null if unreadable. */
+    getIdleSeconds: () => ipcRenderer.invoke("zero:system-idle"),
+  },
+
+  /** Append a diagnostic line to the desktop debug log file (see zero:debug-log in main). A packaged
+   *  build has no visible console, so this is how the renderer records state we can read back. The
+   *  file lives at `debugLogPath` (%LOCALAPPDATA%\Zero\zero-debug.log). Best-effort; no-op on web. */
+  debugLog: (line) => ipcRenderer.send("zero:debug-log", line),
+  /** Absolute path of that debug log file, resolved at load so the UI can SHOW the user where it is. */
+  debugLogPath: (() => {
+    try {
+      return ipcRenderer.sendSync("zero:debug-log-path")
+    } catch {
+      return null
+    }
+  })(),
+
+  /** Fetch a web page's real <title>/og:title from MAIN (net.fetch — no CORS, no server).
+   *  The desktop stand-in for the /api/web-title route that the static export can't ship, so
+   *  web Resources still show a human title + favicon offline. Resolves { title: string|null };
+   *  never rejects (main swallows errors → { title: null }). External http(s) URLs only. */
+  webTitle: (url) => ipcRenderer.invoke("zero:web-title", url),
+
+  /** MANUAL background-update lifecycle (see setupAutoUpdate in main.cjs). A newer build
+   *  is ANNOUNCED (onAvailable) but NOT fetched until you call startDownload(); progress
+   *  streams via onProgress, completion via onDownloaded, then restartToApply() applies it. */
+  updates: {
+    /** A newer version is available to download (not yet fetched). cb({ version }). */
+    onAvailable: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on("zero:update:available", handler)
+      return () => ipcRenderer.removeListener("zero:update:available", handler)
+    },
+    /** Download progress. cb({ percent }). */
+    onProgress: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on("zero:update:progress", handler)
+      return () => ipcRenderer.removeListener("zero:update:progress", handler)
+    },
+    /** Update downloaded and staged; installs on next restart. cb({ version }). */
+    onDownloaded: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on("zero:update:downloaded", handler)
+      return () => ipcRenderer.removeListener("zero:update:downloaded", handler)
+    },
+    /** A check/download error occurred (best-effort; lets the UI drop back). cb({ message }). */
+    onError: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on("zero:update:error", handler)
+      return () => ipcRenderer.removeListener("zero:update:error", handler)
+    },
+    /** Begin downloading the available update. No-op if none available or already downloading. */
+    startDownload: () => ipcRenderer.send("zero:update:download"),
+    /** Quit + install the staged update now, then relaunch. No-op if none staged. */
+    restartToApply: () => ipcRenderer.send("zero:update:install"),
+  },
+
+  /** Frameless window controls, rendered inside Zero's own header. */
+  win: {
+    minimize: () => ipcRenderer.send("zero:win:minimize"),
+    toggleMaximize: () => ipcRenderer.send("zero:win:toggle-maximize"),
+    close: () => ipcRenderer.send("zero:win:close"),
+    isMaximized: () => ipcRenderer.invoke("zero:win:is-maximized"),
+    /** Subscribe to real maximize-state changes so the icon stays in sync. */
+    onMaximizeChange: (cb) => {
+      const handler = (_e, value) => cb(!!value)
+      ipcRenderer.on("zero:win:maximized", handler)
+      return () => ipcRenderer.removeListener("zero:win:maximized", handler)
+    },
+    /** OS-level fullscreen (whole screen, taskbar hidden) — distinct from maximize. */
+    toggleFullScreen: () => ipcRenderer.send("zero:win:toggle-fullscreen"),
+    isFullScreen: () => ipcRenderer.invoke("zero:win:is-fullscreen"),
+    /** Subscribe to real fullscreen-state changes (button, F11/Escape, or native gesture). */
+    onFullScreenChange: (cb) => {
+      const handler = (_e, value) => cb(!!value)
+      ipcRenderer.on("zero:win:fullscreen", handler)
+      return () => ipcRenderer.removeListener("zero:win:fullscreen", handler)
     },
   },
 })

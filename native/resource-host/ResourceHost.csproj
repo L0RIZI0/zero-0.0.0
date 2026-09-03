@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>ZeroResourceHost</AssemblyName>
+    <RootNamespace>Zero.ResourceHost</RootNamespace>
+    <!--
+      Zero's WebView2 "resource host". A long-lived native process the Electron shell spawns and drives
+      over stdio (newline-delimited JSON). It owns the WebView2 controllers that render Zero's third-party
+      resource surfaces (the thing that must NOT be Electron's Chromium, so Google login works).
+      Bundled into the Electron app via electron-builder extraResources. Windows-only.
+    -->
+  </PropertyGroup>
+
+  <!--
+    Self-contained single-file settings apply ONLY when we publish the shipped host (one .exe, no .NET
+    install needed). Gating them behind HostPublish keeps plain `dotnet run`/`dotnet build` (used in dev)
+    a fast framework-dependent build instead of the heavy single-file/self-contained compile. The publish
+    script (scripts/build-resource-host.mjs) passes -p:HostPublish=true.
+  -->
+  <PropertyGroup Condition="'$(HostPublish)' == 'true'">
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.*" />
+  </ItemGroup>
+
+</Project>

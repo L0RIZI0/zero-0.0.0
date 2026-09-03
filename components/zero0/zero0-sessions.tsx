@@ -1,0 +1,302 @@
+"use client"
+
+import { useCallback, useState } from "react"
+import { Pencil, Trash2 } from "lucide-react"
+import type { Entity } from "@/lib/zero/types"
+import { getSessionRows, type SessionRow } from "@/lib/zero/face-model"
+import { parseSlotToken } from "@/lib/zero/create-parse"
+import type { MenuItem } from "@/lib/zero/menu-model"
+import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
+import { ICON_BTN, ACTION_CLS } from "./zero0-occurrences"
+
+// The §0 RECORDED SESSIONS + ACCESS block (v0.2.293) — shown BELOW planned occurrences. It surfaces the
+// two DERIVED session rails as plain lists (they used to be single meta-grid summary rows, hidden since
+// the .279 default profile emptied the meta grid — so nothing displayed them anymore):
+//   • RECORDED SESSIONS = `via:"play"` — the bottom rail (deliberate Play/Stop AND auto-enter play).
+//     Each row is ONE stored session = one log entry, so it is individually EDITABLE: right-click (or
+//     click) → Edit time / Delete. Edit reuses the same inline time-editor as planned occurrences
+//     (prefilled with the session's clock, re-anchored onto its own day). Only CLOSED, anchored rows are
+//     editable (see SessionRow.editable); the live/ongoing one uses the --start flow, not this menu.
+//   • ACCESS = `via:"focus"` — the middle rail (machine-truth "where I was"). DISPLAY-ONLY: it's
+//     presence, not a deliberate record, so it carries no edit/delete affordance.
+// Empty rails render nothing (no header). Marks are excluded upstream by getSessionRows (not spans).
+
+const EDIT_PLACEHOLDER = "e.g. 1400 or 1400-1530"
+
+/** Local-clock `HHMM` for prefilling the time editor — same convention as the occurrence editor. */
+function clockHHMM(epoch: number): string {
+  const d = new Date(epoch)
+  return String(d.getHours()).padStart(2, "0") + String(d.getMinutes()).padStart(2, "0")
+}
+
+/** Re-anchor a parsed clock onto a session's EXISTING day: keep the day of `dayAnchor`, overwrite only the
+    H:M:S from `parsedTime` (which parseSlotToken may have placed on a different logical day). Mirrors the
+    occurrence editor's applyClock exactly — editing a session's time is a time-of-day correction. */
+function applyClock(dayAnchor: number, parsedTime: number): number {
+  const day = new Date(dayAnchor)
+  const t = new Date(parsedTime)
+  day.setHours(t.getHours(), t.getMinutes(), t.getSeconds(), 0)
+  return day.getTime()
+}
+
+/** A user action on a RECORDED session, dispatched up to the canvas (which owns the writers + re-render).
+    edit/delete are keyed by `anchorId` — the fold's correction handle (see Session.anchorId / editSession).
+    `addSession` MANUALLY logs a session the user did OUTSIDE Zero (v0.2.294) — absolute start/end epochs
+    from the add input; the canvas routes it to `addManualSession` (a `session` log Instant → the fold
+    materializes a new anchored `via:"play"` session, so it's immediately editable/deletable like any other). */
+export type SessionAction =
+  | { type: "editSession"; anchorId: number; start: number; end: number }
+  | { type: "deleteSession"; anchorId: number }
+  | { type: "addSession"; start: number; end: number }
+
+export function Zero0Sessions({
+  entity,
+  now,
+  onAction,
+}: {
+  entity: Entity
+  /** Epoch (ms) driving the live duration of any still-open session. */
+  now: number
+  /** Dispatch an edit/delete. Absent ⇒ read-only (no right-click menu, no inline editor). */
+  onAction?: (e: Entity, action: SessionAction) => void
+}) {
+  const recorded = getSessionRows(entity, now, "play")
+  const access = getSessionRows(entity, now, "focus")
+
+  const [draft, setDraft] = useState("")
+  const [error, setError] = useState(false)
+  // EDIT MODE — when set, the inline input re-times this recorded session's clock (day fixed). Only ever a
+  // recorded (editable) row is placed here. Cleared on commit / Esc / blur.
+  const [editing, setEditing] = useState<SessionRow | null>(null)
+  // ADD MODE (v0.2.294) — the inline input logs a NEW manual session (something done outside Zero). Shares
+  // the same input as edit; the two modes are mutually exclusive (opening one clears the other).
+  const [adding, setAdding] = useState(false)
+  const [menu, setMenu] = useState<Zero0DomMenuState | null>(null)
+
+  // Enter EDIT mode for one recorded session: open the inline input prefilled with the session's current
+  // clock (HHMM-HHMM). A closed editable row always has both bounds, so the prefill is always a range.
+  const startEdit = useCallback(
+    (r: SessionRow) => {
+      if (!onAction || !r.editable) return
+      const prefill = r.endedAt != null ? `${clockHHMM(r.startedAt)}-${clockHHMM(r.endedAt)}` : clockHHMM(r.startedAt)
+      setEditing(r)
+      setAdding(false)
+      setDraft(prefill)
+      setError(false)
+      setMenu(null)
+    },
+    [onAction],
+  )
+
+  // Open the inline input in ADD mode (v0.2.294) — mutually exclusive with edit. Logs a manual session.
+  const openAdd = useCallback(() => {
+    if (!onAction) return
+    setEditing(null)
+    setAdding(true)
+    setDraft("")
+    setError(false)
+    setMenu(null)
+  }, [onAction])
+
+  // Commit a manual ADD: parse the draft as a SPAN (both bounds required — a recorded session needs a start
+  // AND an end). parseSlotToken returns ABSOLUTE epochs anchored to the logical day (a bare clock lands in
+  // the 5am→5am window containing now, so a past clock reads as earlier today — exactly what "I did this"
+  // wants), so — unlike edit — we pass them straight through with NO re-anchoring. The writer clamps
+  // start ≤ now and end ≥ start and the fold discards sub-1.5s spans.
+  const submitAdd = useCallback(() => {
+    const parsed = parseSlotToken(draft.trim(), now)
+    if (!parsed || parsed.end == null) {
+      setError(true)
+      return
+    }
+    onAction?.(entity, { type: "addSession", start: parsed.start, end: parsed.end })
+    setAdding(false)
+    setDraft("")
+    setError(false)
+  }, [draft, now, onAction, entity])
+
+  // Commit a TIME edit: parse the draft as a clock token, re-anchor both bounds onto the session's own day,
+  // and dispatch `{type:"editSession"}` keyed by anchorId. A single-time token (no dash) is rejected here —
+  // a recorded session needs BOTH a start and an end — so the editor errors rather than guess an end.
+  const submitEdit = useCallback(() => {
+    if (!editing || editing.anchorId == null) return
+    const parsed = parseSlotToken(draft.trim(), now)
+    if (!parsed || parsed.end == null) {
+      setError(true)
+      return
+    }
+    const dayAnchor = editing.startedAt
+    const start = applyClock(dayAnchor, parsed.start)
+    let end = applyClock(dayAnchor, parsed.end)
+    // An overnight span (e.g. 2330-0100) re-anchors with end EARLIER than start ⇒ push end to the next
+    // day. Strictly `<` (not `<=`): an EQUAL clock (e.g. a sub-minute play/stop that prefilled 2217-2217)
+    // is a zero-length session, NOT a 24h one — pushing it +1 day produced a bogus "1d" span (v0.2.293).
+    if (end < start) end += 24 * 60 * 60 * 1000
+    onAction?.(entity, { type: "editSession", anchorId: editing.anchorId, start, end })
+    setEditing(null)
+    setDraft("")
+    setError(false)
+  }, [editing, draft, now, onAction, entity])
+
+  // Open the recorded-row menu at the cursor: Edit time · Delete. Wired to BOTH right-click and plain click
+  // so it's reachable without a physical right button (trackpads). stopPropagation: the §0 detail panel
+  // wraps everything in an onContextMenu that opens the ENTITY menu, so without this a right-click here
+  // would bubble up and open that instead (same guard the occurrence rows use).
+  const openRowMenu = useCallback(
+    (r: SessionRow, ev: React.MouseEvent) => {
+      if (!onAction || !r.editable || r.anchorId == null) return
+      ev.preventDefault()
+      ev.stopPropagation()
+      const items: MenuItem[] = [
+        { type: "item", id: "edit", label: "Edit time" },
+        { type: "item", id: "delete", label: "Delete", danger: true },
+      ]
+      setMenu({
+        items,
+        x: ev.clientX,
+        y: ev.clientY,
+        onSelect: (id) => {
+          if (id === "edit") startEdit(r)
+          else if (id === "delete") onAction(entity, { type: "deleteSession", anchorId: r.anchorId! })
+        },
+      })
+    },
+    [onAction, entity, startEdit],
+  )
+
+  // Render nothing only when there's truly nothing to show AND no way to act. With `onAction` present we
+  // still render so the RECORDED SESSIONS "+ add" is reachable even on an entity with no sessions yet.
+  if (recorded.length === 0 && access.length === 0 && !onAction) return null
+
+  // The "+ add" trigger (v0.2.294) — manually log a session done outside Zero. Styled like the occurrence
+  // block's "+ add" (shared ACTION_CLS). Hidden while the input is already open (adding/editing).
+  const addButton = (
+    <button type="button" onClick={openAdd} className={ACTION_CLS} title="Manually log a session you did outside Zero (e.g. 1400-1530)">
+      + add
+    </button>
+  )
+
+  // One session entry — now a compact HORIZONTAL CHIP (v0.2.294): DAY · TIME · DURATION on a single
+  // non-wrapping line, `shrink-0` so it keeps its width inside the scrolling strip. For a recorded +
+  // editable chip the ACTION ICONS (pencil=Edit time · trash=Delete) live in an ABSOLUTE OVERLAY that
+  // covers the chip on hover (opaque bg masks the text) — so revealing them never widens the chip or
+  // shifts its neighbours. Right-click anywhere on an editable chip still opens the same menu (parity with
+  // the dayline tick). Access + non-editable chips render as plain text with no affordance; an ONGOING
+  // recorded chip is display-only (edit is for closed sessions).
+  const renderRow = (r: SessionRow) => {
+    const interactive = !!onAction && r.editable
+    return (
+      <li key={r.key} className="group relative shrink-0 text-[10px] tabular-nums leading-5">
+        <div
+          className="flex items-center gap-1.5 whitespace-nowrap"
+          onContextMenu={interactive ? (ev) => openRowMenu(r, ev) : undefined}
+        >
+          <span className="text-muted-foreground">{r.day}</span>
+          <span className="text-foreground">{r.timeText}</span>
+          <span className="text-muted-foreground">{r.durationText}</span>
+          {r.open && <span className="text-[9px] uppercase tracking-wider text-foreground opacity-70">ongoing</span>}
+        </div>
+        {interactive && (
+          <div className="absolute inset-0 flex items-center justify-center gap-3 rounded-sm bg-background opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            <button type="button" onClick={() => startEdit(r)} className={ICON_BTN} title="Edit this session's time" aria-label="Edit time">
+              <Pencil className="h-3 w-3" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onAction!(entity, { type: "deleteSession", anchorId: r.anchorId! })}
+              className={ICON_BTN}
+              title="Delete this session"
+              aria-label="Delete"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </div>
+        )}
+      </li>
+    )
+  }
+
+  return (
+    <div className="mt-3">
+      {/* RECORDED SESSIONS — the editable bottom rail, now a single HORIZONTAL STRIP (v0.2.294): entries
+          run left→right, `.reverse()` so the LEFT-MOST is the MOST RECENT and the right-most the oldest;
+          it scrolls horizontally with NO visible scrollbar (`.no-scrollbar`). The "+ add" moved onto the
+          header line (out of the entry strip so it stays put + doesn't disturb the newest-left ordering),
+          hidden while the input is open. Rendered whenever there are rows OR we can add one. */}
+      {(recorded.length > 0 || onAction) && (
+        <div className="mb-2">
+          <div className="mb-1 flex items-center gap-3">
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">recorded sessions</span>
+            {onAction && !adding && !editing && addButton}
+          </div>
+          <ul className="flex flex-row gap-4 overflow-x-auto no-scrollbar">
+            {recorded.slice().reverse().map(renderRow)}
+          </ul>
+        </div>
+      )}
+
+      {/* ACCESS — the machine-truth presence rail. DISPLAY-ONLY. Same horizontal newest-left strip. */}
+      {access.length > 0 && (
+        <div>
+          <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">access</div>
+          <ul className="flex flex-row gap-4 overflow-x-auto no-scrollbar">
+            {access.slice().reverse().map(renderRow)}
+          </ul>
+        </div>
+      )}
+
+      {/* Inline TIME input (v0.2.293 edit; v0.2.294 add) — mirrors the occurrence editor. Shared by EDIT
+          (prefilled clock, day fixed, re-anchored) and ADD (empty, absolute epochs). The two modes are
+          mutually exclusive. */}
+      {onAction && (editing || adding) && (
+        <div className="mt-1">
+          <div className="mb-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
+            {editing ? `editing session · ${editing.day}` : "add session"}
+          </div>
+          <input
+            autoFocus
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value)
+              setError(false)
+            }}
+            onKeyDown={(e) => {
+              // CJK IME guard: don't submit while composing (or on Safari's unreliable 229).
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return
+              if (e.key === "Enter") {
+                e.preventDefault()
+                if (editing) submitEdit()
+                else submitAdd()
+              } else if (e.key === "Escape") {
+                setEditing(null)
+                setAdding(false)
+                setDraft("")
+                setError(false)
+              }
+            }}
+            onBlur={() => {
+              // A blur cancels the pending edit/add (no accidental commit), same as the occurrence editor.
+              setEditing(null)
+              setAdding(false)
+              setDraft("")
+              setError(false)
+            }}
+            placeholder={adding ? "e.g. 1400-1530" : EDIT_PLACEHOLDER}
+            aria-label={editing ? "Edit session time" : "Add session time"}
+            aria-invalid={error}
+            className={
+              "w-full bg-transparent text-[10px] tabular-nums placeholder:text-muted-foreground/60 focus:outline-none " +
+              (error ? "text-foreground underline decoration-dotted decoration-muted-foreground underline-offset-2" : "text-foreground")
+            }
+          />
+          {error && (
+            <div className="mt-0.5 text-[9px] text-muted-foreground">Unrecognized — enter a range like 1400-1530.</div>
+          )}
+        </div>
+      )}
+
+      {/* Recorded-row right-click / click menu — the shared popup (viewport-clamped, self-dismissing). */}
+      {menu && <Zero0DomMenu menu={menu} onClose={() => setMenu(null)} />}
+    </div>
+  )
+}

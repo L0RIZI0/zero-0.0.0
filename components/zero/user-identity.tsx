@@ -1,41 +1,43 @@
 "use client"
 
+import { useRef, useState } from "react"
 import Image from "next/image"
+import { createPortal } from "react-dom"
 import { motion, AnimatePresence } from "motion/react"
 import { currentUser } from "@/lib/zero/data"
-import { layerTransition } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 
+// Avatar diameter. The handle is no longer an in-flow element (it shows as a hover
+// tooltip), so the name sits alone vertically centered on the avatar — the avatar is
+// sized for that single line so it doesn't look oversized.
+const AVATAR = 28
+
 /**
- * The identity of Space 0 — the user. Lives permanently in the top-left of the
- * shell header. When `compact` (deep dives, shell stage 2+) the avatar shrinks
- * by ~a third and the @handle is dropped, leaving a tidy avatar + name so the
- * chrome stays discrete while the focus window gets more room.
+ * The identity of Space 0 — the user. Lives permanently in the top-left of the shell
+ * header: an avatar + name. The @handle is REVEALED AS A HOVER TOOLTIP (no element
+ * animation on the identity itself), styled + animated like the peek-resources hover
+ * label — a popover with a left→right clip-path wipe.
  */
-export function UserIdentity({
-  compact = false,
-  className,
-}: {
-  compact?: boolean
-  className?: string
-}) {
-  // 36px at rest, 21px when compact (a touch smaller than before).
-  const avatarSize = compact ? 21 : 36
+export function UserIdentity({ className }: { className?: string }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [tip, setTip] = useState<{ top: number; left: number } | null>(null)
+
+  const show = () => {
+    const el = ref.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    // Anchor just below the identity, aligned to the avatar's horizontal center.
+    setTip({ top: r.bottom + 6, left: r.left + AVATAR / 2 })
+  }
 
   return (
-    <motion.div
-      className={cn("flex min-w-0 items-center", className)}
-      initial={false}
-      // Pull the name a touch closer to the avatar when compact (8px vs 10px).
-      animate={{ gap: compact ? 8 : 10 }}
-      transition={layerTransition}
+    <div
+      ref={ref}
+      className={cn("flex min-w-0 items-center gap-2.5", className)}
+      onMouseEnter={show}
+      onMouseLeave={() => setTip(null)}
     >
-      <motion.span
-        className="relative shrink-0 overflow-hidden rounded-full border border-border"
-        initial={false}
-        animate={{ width: avatarSize, height: avatarSize }}
-        transition={layerTransition}
-      >
+      <span className="relative h-7 w-7 shrink-0 overflow-hidden rounded-full border border-border">
         <Image
           src={currentUser.avatarUrl ?? "/loris-avatar.png"}
           alt={`${currentUser.name} avatar`}
@@ -43,36 +45,32 @@ export function UserIdentity({
           sizes="44px"
           className="object-cover"
         />
-      </motion.span>
-      <span className="flex min-w-0 flex-col leading-tight">
-        <motion.span
-          // Less prominent when compact: slightly smaller, lighter weight, and a
-          // dimmer color so the identity recedes as the focus window takes over.
-          className={cn(
-            "truncate tracking-tight transition-colors",
-            compact ? "font-medium text-foreground/65" : "font-semibold text-foreground",
-          )}
-          initial={false}
-          animate={{ fontSize: compact ? 12.5 : 15 }}
-          transition={layerTransition}
-        >
-          {currentUser.name}
-        </motion.span>
-        <AnimatePresence initial={false}>
-          {!compact && (
-            <motion.span
-              key="handle"
-              className="truncate text-[12px] text-muted-foreground/70"
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={layerTransition}
-            >
-              @{currentUser.handle}
-            </motion.span>
-          )}
-        </AnimatePresence>
       </span>
-    </motion.div>
+      <span className="truncate text-[15px] font-semibold tracking-tight text-foreground">
+        {currentUser.name}
+      </span>
+
+      {/* Handle tooltip — same visual + clip-wipe animation as the peek-resources label.
+          Portaled to the body so it's never clipped by the header chrome. */}
+      {typeof document !== "undefined" &&
+        createPortal(
+          <AnimatePresence>
+            {tip && (
+              <motion.div
+                data-handle-tip
+                initial={{ clipPath: "inset(0 100% 0 0)", opacity: 0 }}
+                animate={{ clipPath: "inset(0 0% 0 0)", opacity: 1 }}
+                exit={{ clipPath: "inset(0 100% 0 0)", opacity: 0 }}
+                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                className="pointer-events-none fixed z-[200] whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 text-[11px] leading-none text-popover-foreground shadow-md"
+                style={{ top: tip.top, left: tip.left }}
+              >
+                @{currentUser.handle}
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body,
+        )}
+    </div>
   )
 }

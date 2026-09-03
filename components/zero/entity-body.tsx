@@ -1,20 +1,33 @@
 "use client"
 
+import type { ReactNode } from "react"
+import { useRef, useEffect } from "react"
 import { motion } from "motion/react"
-import { getSpaceAssets } from "@/lib/zero/data"
-import { panelTransition } from "@/lib/zero/motion"
+import { panelSlideTransition } from "@/lib/zero/motion"
+import { getPinnedItems } from "@/lib/zero/data"
 import { usePanelOpen } from "@/lib/zero/panel-store"
+import { useZeroNav } from "@/lib/zero/nav-store"
+import { VIEW_PAD_TOP, VIEW_PAD_BOTTOM, PANEL_OPEN_W } from "@/lib/zero/layout"
+import { Region } from "./region"
 import { Dock } from "./dock"
 import { DoList } from "./do-list"
 import { AssetPanel } from "./asset-panel"
+import { getEntityResourceCount } from "@/lib/zero/resources"
 import { OutputPanel } from "./output-panel"
 import { CollapsibleColumn } from "./collapsible-column"
+import { SpineExcerpt } from "./spine-excerpt"
 import { ResourceCanvas } from "./resource-canvas"
+import { DebugFrameLabel, DebugComponentFrame } from "./debug-frame-label"
+import { useDebugView } from "@/lib/zero/debug-view"
 import { cn } from "@/lib/utils"
 
-/** Width of a side panel when OPEN, and of the thin RAIL when collapsed. */
-const PANEL_OPEN_W = 230
-const PANEL_RAIL_W = 48
+/** Width of the thin RAIL when collapsed. (Open panel BODY width = shared `PANEL_OPEN_W`
+ *  from layout, so the ancestor-squeeze in nav-store stays in sync with the View squeeze.) */
+const PANEL_SPINE_W = 48
+/** How far the View is squeezed IN from a side when that side's panel is OPEN: the
+ *  full panel footprint (spine + panel), so the content sits flush beside the panel's
+ *  inner edge instead of being overlaid by it. Collapsed → back to the spine (PANEL_SPINE_W). */
+const PANEL_SQUEEZE_W = PANEL_SPINE_W + PANEL_OPEN_W
 
 
 /**
@@ -23,9 +36,9 @@ const PANEL_RAIL_W = 48
  *
  * Panels are an absolute overlay anchored to the FRAME's vertical center, not to
  * the body. `entity-node` measures the only thing that varies — the in-flow
- * header — and hands us `--rail-center-shift` (0 for floating/space headers,
+ * header — and hands us `spineShift` (0 for floating/space headers,
  * `-headerH/2` for in-flow task/event headers). The overlay sits at
- * `calc(50% + var(--rail-center-shift))`, so the rails land on the true middle of
+ * `calc(50% + var(spineShift))`, so the spines land on the true middle of
  * the window's left/right edges at ANY depth, and never jump when a child opens
  * and this window's ancestor rank (and header height) changes.
  *
@@ -39,136 +52,343 @@ export function EntityBody({
   active = true,
   isRoot = false,
   closing = false,
+  fullscreen = false,
   centerList = true,
-  floatDock = false,
-  railShift = 0,
-  railBleedLeft = PANEL_RAIL_W,
-  railBleedRight = PANEL_RAIL_W,
+  spineShift = 0,
+  spineBleedLeft = PANEL_SPINE_W,
+  spineBleedRight = PANEL_SPINE_W,
+  panelTopOffset = 0,
+  spineTitle,
+  spineGlyph,
+  surface,
   resource,
+  timeline,
 }: {
   entityId: string
   active?: boolean
+  /** Region-0 content (the home Lifeline timeline). Provided ONLY for the home view;
+   *  when present, EntityBody renders it as the top HUG region above the do-list.
+   *  Omitted for every child entity, so their stack starts at the do-list region. */
+  timeline?: ReactNode
   /** When set, this is a RESOURCE TASK: the center surface is the bound web
    *  resource (live embed or illustrative stand-in) instead of the do-list/Dock.
-   *  The Inputs/Outputs rails still render — a resource is work whose outputs wire
+   *  The Inputs/Outputs spines still render — a resource is work whose outputs wire
    *  into the Task's Outputs. `url` is the page to open; `resourceId` selects the
    *  catalog entry (branding + embed behavior). */
   resource?: { url: string; resourceId?: string }
+  /** When true AND this is a resource task, the native web view goes edge-to-edge
+   *  (full viewport). Forwarded to ResourceCanvas. */
+  fullscreen?: boolean
   /** Forwarded to the DoList so it can keep its scroller clipped during this
    *  window's close morph (prevents the ADD row jumping up over the title). */
   closing?: boolean
-  /** Vertical px offset that re-centers the rails on the FRAME center (0 when the
+  /** Vertical px offset that re-centers the spines on the FRAME center (0 when the
    *  body fills the frame; −headerH/2 for an in-flow header). ANIMATED, so the
-   *  rails slide as a window's header changes (e.g. ancestor → spine). */
-  railShift?: number
-  /** Collapsed-rail width per side = the visible bleed strip of this window once a
-   *  child covers it, so the rail centers within that sliver instead of clipping at
-   *  the frame edge. Defaults to the full rail (leaf / home root, uncovered). */
-  railBleedLeft?: number
-  railBleedRight?: number
-  /** Space-leaf only: float the Dock OUT of the do-list's flex column (absolute,
-   *  into the hexagon's bottom triangle) so the do-list always fills the full
-   *  central rectangle regardless of how many items are pinned. When false (home
-   *  root, ancestors, task/event windows) the Dock stays in flow beneath the list. */
-  floatDock?: boolean
+   *  spines slide as a window's header changes (e.g. ancestor → spine). */
+  spineShift?: number
+  /** Collapsed-spine width per side = the visible bleed strip of this window once a
+   *  child covers it, so the spine centers within that sliver instead of clipping at
+   *  the frame edge. Defaults to the full spine (leaf / home root, uncovered). */
+  spineBleedLeft?: number
+  spineBleedRight?: number
+  /** Px to push the panel/spine box top DOWN from the body's top so it starts at the
+   *  VISUAL header bottom (spanning header-bottom → window-bottom). 0 wherever the body
+   *  already starts at the header bottom (home view, in-flow-header child); = headerH
+   *  only for a FLOATING-header window whose body fills from the window top. */
+  panelTopOffset?: number
+  /** When set (a covered SPACE ancestor), the LEFT spine renders this title ROTATED
+   *  below the glyph and above the excerpt. The excerpt flows naturally beneath it —
+   *  no offset needed (see CollapsibleColumn). Undefined for leaves/non-spaces. */
+  spineTitle?: string
+  /** Optional glyph shown at the TOP of the LEFT spine, above the rotated spine title
+   *  (used by entity0/home to show the Individual's glyph when it's a covered ancestor,
+   *  aligned with the covering child's header glyph). Forwarded to the left column. */
+  spineGlyph?: ReactNode
+  /** The window's background colour — the opaque panel uses it so it reads as the
+   *  window surface sliding over the View. Falls back to the theme background. */
+  surface?: string
   /** Vertically center the do-list within its column (forwarded to DoList). */
   centerList?: boolean
-  /** The always-mounted home view. Its body has no in-flow header, so its rails
-   *  center on the region directly (`--rail-center-shift` defaults to 0). Kept as
+  /** The always-mounted home view. Its body has no in-flow header, so its spines
+   *  center on the region directly (`spineShift` defaults to 0). Kept as
    *  a flag only to widen the central reading measure on the home view. */
   isRoot?: boolean
 }) {
-  const assetCount = getSpaceAssets(entityId).length
+  // The spine's "RESOURCES (n)" counter reflects the resources this entity actually HOLDS
+  // (entity0's world inputs; a child's imported/added resources) — model-driven, so a
+  // child with no holdings reads (0).
+  const assetCount = getEntityResourceCount(entityId)
+  // BOTH panels default COLLAPSED for every entity/kind — Resources (IN) and Published (OUT).
+  // State is session-persistent: the in-memory panel store keeps a user's per-entity
+  // expand/collapse choice across navigation (open a panel, leave the entity, come back → it's
+  // still open), resetting to these collapsed defaults only on a full reload/app restart. It is
+  // NOT written to localStorage, so it never touches persisted (Electron) data.
+  // NOTE the collapsed default does not affect ancestors: a COVERED ancestor is `!active`, so
+  // `active && inOpen` is already false regardless of `inOpen`, and it keeps showing its
+  // peek-losange strip. Only the FOCUSED leaf's initial state changes (now collapsed until the
+  // user expands it); a manually-expanded leaf still dive-peek morphs into losanges on dive.
   const [inOpen, setInOpen] = usePanelOpen(`${entityId}:in`, false)
   const [outOpen, setOutOpen] = usePanelOpen(`${entityId}:out`, false)
+  // A resources-panel peek morph is "snappy" (fast, manual-toggle curve) ONLY when the user
+  // clicked the spine — i.e. `active` stayed true and `inOpen` changed. When the morph is
+  // driven by a child opening/closing (`active` itself flips), it is an AUTO morph that must
+  // ride the slow 2s window dive in BOTH directions (symmetric collapse ⇄ uncollapse). We
+  // can't tell the two apart from the resting state alone (manual-expand and auto-uncollapse
+  // both end at active+open), so we detect whether `active` JUST changed this render: if it
+  // did, the morph is auto → not snappy. Framer captures the transition when the target
+  // (peek) flips, which is the same render `active` flips, so this classification is read at
+  // exactly the right moment.
+  const prevActiveRef = useRef(active)
+  const activeJustChanged = prevActiveRef.current !== active
+  useEffect(() => {
+    prevActiveRef.current = active
+  }, [active])
+  // Snappy (manual-toggle curve) whenever `active` did NOT just flip: covers the focused
+  // leaf clicking its own spine (active stayed true) AND a covered ancestor being manually
+  // SPINE-EXPANDED via its peek band (active stayed false). Only an AUTO morph — a child
+  // opening/closing, which flips `active` — falls through to the slow symmetric dive morph.
+  const panelSnappy = !activeJustChanged
+  // IN/OUT GUTTERS: the View is everything visually INSIDE the entity window — inset on
+  // the left/right by the in/out panels, so it never underlaps them. Each side's gutter
+  // is the panel's current footprint: the thin RAIL (`PANEL_SPINE_W`, 48) when collapsed,
+  // or the full panel (`PANEL_SQUEEZE_W` = spine + open panel) when that side is open. The
+  // inset is animated on the shared panel-slide curve so the do-list/resource glides aside
+  // exactly as the panel glides in — a one-shot, localized layout animation on toggle (not
+  // part of the dive morph). Top (header) and bottom (22 peek) insets are separate.
+  const padLeft = inOpen ? PANEL_SQUEEZE_W : PANEL_SPINE_W
+  const padRight = outOpen ? PANEL_SQUEEZE_W : PANEL_SPINE_W
+  // Region 2 (dock) is mounted ONLY when this context has pinned items, so an empty
+  // entity's do-list region fills the whole view. Same source the Dock reads, so they
+  // agree. `dataVersion` makes this reactive to pin add/remove.
+  const { dataVersion, isSpineExpanded, toggleSpineExpand } = useZeroNav()
+  void dataVersion
+  // SPINE-EXPANDED: this entity is a COVERED ANCESTOR (a child is focused, so `!active`)
+  // whose Resources panel the user clicked open from its peek band. Its panel renders the
+  // FULL list (not the peek strip) and nav-store slides the covering child(ren) right to
+  // uncover it. `isSpineExpanded` already only holds covered ancestors (pruned on dive),
+  // but gate on `!active` too so a refocused leaf never reads as spine-expanded.
+  const spineExpanded = isSpineExpanded(entityId) && !active
+  const hasPins = getPinnedItems(entityId).length > 0
+
+  // [v0] DEBUG: short identity prefix for the frame labels. entity0 (the always-mounted
+  // home / Individual) reads "ent0"; any other opened entity uses its id. Remove with
+  // the debug borders.
+  const dbg = isRoot ? "ent0" : entityId
+  // [v0] DEBUG: colored frames + labels gated on the shared `§ 2` toggle.
+  const { frames: showFrames } = useDebugView()
 
   return (
     // Unpadded root: fills [data-body] EXACTLY and is the offset parent for the
     // panel overlays, so a panel's `top: 50%` resolves to the body's true vertical
     // center. The reading padding lives on the inner center column instead, so it
-    // never skews where the rails sit.
-    <div className="relative flex min-h-0 flex-1 flex-col">
+    // never skews where the spines sit.
+    // `pointer-events-none`: the body root is transparent to events and each
+    // interactive LEAF re-enables `pointer-events-auto` (region 0 timeline, do-list
+    // content, resource canvas, Dock, side panels). This keeps the empty gaps between
+    // regions click/scroll-through while the chrome stays fully interactive, and lets
+    // the overlaid side-panel spines sit over the content without stealing its events.
+    <div data-body className="pointer-events-none relative flex min-h-0 flex-1 flex-col">
       {/* RESOURCE TASK: the center surface is the bound web resource, filling the
           rectangular Task window almost edge-to-edge (a slim inset keeps it clear of
-          the Inputs/Outputs rails). The do-list/Dock are skipped entirely — this is
+          the Inputs/Outputs spines). The do-list/Dock are skipped entirely — this is
           Zero acting as a contextual browser. */}
       {resource ? (
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col px-3 pb-3 pt-2">
-          <ResourceCanvas url={resource.url} resourceId={resource.resourceId} />
-        </div>
-      ) : (
-        <>
-      {/* Center column — Tasks do-list ABOVE the Dock (pinned items). The list
-          takes the remaining height (flex-1); the Dock sits beneath it. Capped for
-          a comfortable reading measure and centered. Full width now: the side
-          panels overlay it rather than stealing its space, so it never moves. */}
-      <div className="flex min-h-[180px] min-w-0 flex-1 flex-col items-center px-6 pb-5 pt-4">
-        <div className={cn("relative flex min-h-0 w-full flex-1 flex-col", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
-          {/* Do-list narrowed to 2/3 of the measure and centered for a tighter
-              list; the Dock below keeps the full measure width. */}
-          <div className="flex min-h-0 w-2/3 flex-1 flex-col self-center">
-            <DoList contextId={entityId} active={active} closing={closing} centered={centerList} />
-          </div>
-          {floatDock ? (
-            /* SPACE LEAF: pull the Dock OUT of the do-list flex column and drop it
-               FLUSH to the octagon's bottom edge — exactly mirroring the home view,
-               where the dock sits flush to the work-area bottom and its only gap is
-               the Dock's own internal spacing below the card glyphs. `[data-body]` is
-               only the octagon's CENTRAL RECTANGLE (inset top+bottom by
-               `--hex-corner-inset-y`); this wrapper's offset parent fills that body, so
-               `bottom: 0` lands at the BODY bottom — one corner-inset ABOVE the frame
-               bottom (mid-window, too high). Offsetting `bottom` by `-corner-inset`
-               pushes the dock down through the bottom wedge to sit flush with the true
-               frame bottom, so the resulting visual margin matches home identically.
-               Freed of flex height, the do-list always spans the full central rectangle,
-               so it centers identically whether or not items are pinned.
-               `pointer-events-none` lets the do-list's bottom rows stay clickable
-               through the dock's empty padding; the Dock re-enables pointer events. No
-               transforms (so GSAP Flip never sees it). */
-            <div
-              className="pointer-events-none absolute inset-x-0 flex justify-center"
-              style={{ bottom: `calc(var(--hex-corner-inset-y, 0px) * -1)` }}
-            >
-              <div className="w-full">
-                <Dock contextId={entityId} active={active} />
-              </div>
-            </div>
-          ) : (
-            <div className="pt-4">
-              <Dock contextId={entityId} active={active} />
-            </div>
+        <motion.div
+          // FULLSCREEN: drop the spine/peek insets so the resource canvas (native web
+          // view in Electron) fills the window body EDGE-TO-EDGE below the window
+          // header. The header itself is NOT covered — it stays above [data-body] with
+          // its shrink/close, which is how you exit (no reliance on Escape, which the
+          // focused native web view swallows). Non-fullscreen keeps the normal insets:
+          // slim top/bottom + animated left/right gutters for the in/out spines.
+          className={cn(
+            "pointer-events-auto flex min-h-0 min-w-0 flex-1 flex-col",
+            !fullscreen && "pb-3 pt-2",
           )}
+          initial={false}
+          animate={{ paddingLeft: fullscreen ? 0 : padLeft, paddingRight: fullscreen ? 0 : padRight }}
+          transition={panelSlideTransition}
+        >
+          <ResourceCanvas id={entityId} url={resource.url} resourceId={resource.resourceId} active={active} />
+        </motion.div>
+      ) : (
+        // THE VIEW — everything visually INSIDE the entity window: the region stack,
+        // inset so it never covers the surrounding chrome. Sides = the in/out gutters
+        // (padLeft/padRight: the spine when collapsed → full panel when open, animated);
+        // bottom = a 22px peek (VIEW_PAD_BOTTOM); top = 0 (VIEW_PAD_TOP — the header
+        // already occupies the top for in-flow-header windows, and floating-header
+        // windows intentionally keep their View starting at the window top). Lives on
+        // this inner wrapper, NOT on `[data-body]`: the body root must stay full-bleed
+        // because it's both the side-panel spines' offset parent and the Flip morph's
+        // target box.
+        // [v0] DEBUG: purple border = the View area (the region stack's footprint).
+        <motion.div
+          data-view
+          className={cn("relative flex min-h-0 flex-1 flex-col", showFrames && "border border-purple-500")}
+          style={{ paddingTop: VIEW_PAD_TOP, paddingBottom: VIEW_PAD_BOTTOM }}
+          initial={false}
+          animate={{ paddingLeft: padLeft, paddingRight: padRight }}
+          transition={panelSlideTransition}
+        >
+          {/* [v0] DEBUG: View label in the BOTTOM-left corner so it never collides with
+              region 0's top-left label. The View is the full region stack: it fills its
+              parent both ways and carries the uniform p-3 inset. */}
+          {showFrames && (
+            <DebugFrameLabel
+              name={`${dbg}·view`}
+              info="stack · h:fill v:fill · pad:0/gutter/22/gutter"
+              className="bottom-0.5 left-0.5 top-auto text-purple-500"
+            />
+          )}
+      {/* REGION 0 (hug) — the home Lifeline timeline, at the very TOP of the view.
+          Rendered ONLY when `timeline` is provided (home view); child entities omit
+          it, so their stack starts at region 1. `pointer-events-auto` so wheel-zoom
+          works while hovering the timeline/its region (the body root is pointer-
+          transparent). */}
+      {timeline ? (
+        <Region grow="hug" className="pointer-events-auto pt-2" debugName={`${dbg}·reg0`} debugRole="lifelane">
+          {/* Full-bleed: the timeline fills the ENTIRE horizontal space of region 0
+              (no `max-w` cap and no side padding, unlike regions 1/2 which stay capped
+              + centered for a comfortable reading measure). Only the view's `p-3` inset
+              keeps it off the screen edge. */}
+          <DebugComponentFrame name={`${dbg}·lifelane`} info="component · timeline" className="w-full">
+            {timeline}
+          </DebugComponentFrame>
+        </Region>
+      ) : null}
+
+      {/* REGION 1 (fill) — the do-list (rows + create-input). Takes the leftover height
+          BETWEEN region 0 and region 2 and centers the do-list in it. The side panels
+          overlay it rather than stealing its space, so it never moves. Pointer-
+          transparent box (the body root is none); the inner do-list re-enables events. */}
+      <Region
+        grow="fill"
+        className="min-h-[180px] min-w-0 items-center px-6 pb-5 pt-4"
+        debugName={`${dbg}·reg1`}
+        debugRole="do-list"
+      >
+        <div className={cn("flex min-h-0 w-full flex-1 flex-col", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
+          {/* Do-list narrowed to 2/3 of the measure and centered for a tighter list,
+              but capped at `max-w-2xl` (672px) so it never stretches into an
+              uncomfortably wide measure on large/ultrawide monitors — on narrower
+              screens the 2/3 width wins, on wide ones the cap does.
+              `pointer-events-auto` re-enables interaction on the list itself. */}
+          <DebugComponentFrame
+            name={`${dbg}·do-list`}
+            info="component · rows + input"
+            className="pointer-events-auto flex min-h-0 w-2/3 max-w-2xl flex-1 flex-col self-center"
+          >
+            <DoList contextId={entityId} active={active} closing={closing} centered={centerList} />
+          </DebugComponentFrame>
         </div>
-      </div>
-        </>
+      </Region>
+
+      {/* REGION 2 (hug) — the Dock at the BOTTOM. Mounted ONLY when the context has
+          pinned items, so it reserves real flow space and pushes region 1 up when it
+          appears (region 1 shrinks to the gap above it). The Dock slides into this
+          reserved slot via its own transform entrance. */}
+      {hasPins ? (
+        <Region grow="hug" className="px-6" debugName={`${dbg}·reg2`} debugRole="dock">
+          <DebugComponentFrame
+            name={`${dbg}·dock`}
+            info="component · pins"
+            className={cn("mx-auto w-full", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}
+          >
+            <Dock contextId={entityId} active={active} />
+          </DebugComponentFrame>
+        </Region>
+      ) : null}
+        </motion.div>
       )}
 
-      {/* Inputs — overlaid rail/panel hugging the LEFT edge, centered on the frame. */}
-      <PanelSlot side="left" open={inOpen} shift={railShift} bleed={railBleedLeft}>
-        <CollapsibleColumn
-          title="Inputs"
-          collapsedTitle="In"
-          side="left"
-          count={assetCount}
-          open={inOpen}
-          onOpenChange={setInOpen}
-        >
-          <AssetPanel spaceId={entityId} />
-        </CollapsibleColumn>
+      {/* RESOURCES — stuff that goes IN (money, assets, apps, files…). Persistent
+          shortcut on the LEFT edge; the opaque panel slides in over the View. */}
+      <PanelSlot side="left" open={inOpen} shift={spineShift} bleed={spineBleedLeft} topOffset={panelTopOffset}>
+        {(spineWidth, panelWidth, spineScale, shift) => (
+          <CollapsibleColumn
+            title="Resources"
+            collapsedTitle="Resources"
+            side="left"
+            count={assetCount}
+            excerpt={<SpineExcerpt entityId={entityId} />}
+            spineTitle={spineTitle}
+            spineGlyph={spineGlyph}
+            open={inOpen}
+            onOpenChange={setInOpen}
+            focused={active}
+            // Covered-ancestor spine-expand: force the FULL list (not the peek strip) and
+            // route band clicks to toggle THIS ancestor's spine-expanded state (which
+            // slides the covering child right, via nav-store `styleFor`).
+            forceExpanded={spineExpanded}
+            // entity0/home: its name + glyph already live in the top ShellHeader, so when its
+            // Resources panel is spine-expanded from a child leaf, collapse the whole spine
+            // head (glyph + rotated title) rather than leaving a bare, title-less glyph.
+            hideSpineHeadWhenExpanded={isRoot}
+            onSpineExpandToggle={() => toggleSpineExpand(entityId)}
+            spineWidth={spineWidth}
+            panelWidth={panelWidth}
+            spineScale={spineScale}
+            spineShift={shift}
+            surface={surface}
+            // The Resources spine ALWAYS uses the peek-losange strip as its collapsed state
+            // (never the vertical "RESOURCES (n)" label) — for a focused leaf AND for a
+            // covered ancestor, whether open or manually collapsed. Static true (NOT `active`):
+            // gating on `active` left a manually-collapsed ancestor falling through to the
+            // vertical-label branch, i.e. an unwanted 3rd state. Now only two states exist:
+            // losange strip (collapsed) and full list (expanded on the focused leaf).
+            stripCollapse
+          >
+            {/* Two states only. FULL LIST when this is the focused leaf with the panel open
+                (`active && inOpen`); PEEK losange strip in EVERY other case — so
+                `peek = !(active && inOpen)`. Peek covers the focused-collapsed leaf AND any
+                covered ancestor (a child is focused, `!active`), open or manually collapsed.
+                In peek the non-losange content (money, titles, meta, headers, add) always
+                fades + slides out, leaving only the losanges — there's no separate "stay
+                visible under the child" case anymore. `spineWidth` = strip width. */}
+            <AssetPanel
+              spaceId={entityId}
+              // FULL list when the focused leaf has its panel open (`active && inOpen`) OR
+              // when this is a spine-expanded covered ancestor; PEEK losange strip otherwise.
+              peek={!((active && inOpen) || spineExpanded)}
+              // `snappy` picks the CURVE only: a MANUAL toggle (`panelSnappy` — user clicked
+              // the spine, `active` didn't just flip) uses the quick curves (bloom on expand,
+              // fast bounce on collapse). An AUTO morph (a child opening OR closing, so
+              // `active` flipped) rides the slow 2s MORPH in BOTH directions, symmetric with
+              // the window dive. See `panelSnappy` above for why we key off active-just-changed.
+              snappy={panelSnappy}
+              spineWidth={spineWidth}
+            />
+          </CollapsibleColumn>
+        )}
       </PanelSlot>
 
-      {/* Outputs — mirror of Inputs on the RIGHT edge. */}
-      <PanelSlot side="right" open={outOpen} shift={railShift} bleed={railBleedRight}>
-        <CollapsibleColumn
-          title="Outputs"
-          collapsedTitle="Out"
-          side="right"
-          count={0}
-          open={outOpen}
-          onOpenChange={setOutOpen}
-        >
-          <OutputPanel spaceId={entityId} />
-        </CollapsibleColumn>
+      {/* PUBLISHED — stuff that goes OUT (publications, output, results). Mirror of
+          Assets on the RIGHT edge. */}
+      <PanelSlot side="right" open={outOpen} shift={spineShift} bleed={spineBleedRight} topOffset={panelTopOffset}>
+        {(spineWidth, panelWidth, spineScale, shift) => (
+          <CollapsibleColumn
+            title="Published"
+            collapsedTitle="Published"
+            side="right"
+            count={0}
+            open={outOpen}
+            onOpenChange={setOutOpen}
+            focused={active}
+            spineWidth={spineWidth}
+            panelWidth={panelWidth}
+            spineScale={spineScale}
+            spineShift={shift}
+            surface={surface}
+          >
+            {/* Mirror of AssetPanel on the right peek. `panelWidth` is needed so a
+                publication losange can be offset onto the RIGHT edge strip. */}
+            <OutputPanel
+              spaceId={entityId}
+              peek={outOpen && !active}
+              spineWidth={spineWidth}
+              panelWidth={panelWidth}
+            />
+          </CollapsibleColumn>
+        )}
       </PanelSlot>
     </div>
   )
@@ -180,52 +400,60 @@ export function EntityBody({
  * Vertical centering (`shift`) is applied INSTANTLY — NOT animated. The morph is a
  * GSAP FLIP: at the React commit the body has already reflowed to its FINAL layout
  * (e.g. header switches in-flow ⇄ absolute when a window spines), and the smooth
- * motion comes from GSAP tweening the FRAME geometry, which carries this rail (a
- * frame descendant) along with it. So the rail must sit at the frame's true center
+ * motion comes from GSAP tweening the FRAME geometry, which carries this spine (a
+ * frame descendant) along with it. So the spine must sit at the frame's true center
  * in the final layout immediately; the GSAP frame morph then slides it smoothly.
  * Animating `shift` here instead re-introduced the pre-commit offset, making the
- * rail jump (up when spining, down when un-spining) before easing back — the bug
+ * spine jump (up when spining, down when un-spining) before easing back — the bug
  * this avoids.
  *
- * `width` and `scale` DO animate on the morph beat: the collapsed rail eases
- * between the full width and the window's visible `bleed` sliver (so it stays
- * centered in the strip a covered ancestor exposes, never clipped), and a covered
- * ancestor's rail gently shrinks for a recessed look. These are horizontal/size
- * changes, so they don't affect the vertical anchor.
+ * The slot spans from the VISUAL header bottom to the window bottom: it fills the
+ * body (`bottom-0`) and its top is pushed DOWN by `topOffset` (0 when the body already
+ * starts at the header bottom; = headerH for a floating-header window). The persistent
+ * shortcut spine stays at the edge sliver (`bleed` wide) and is vertically centered on
+ * the FRAME by `shift` (a covered ancestor's spine also recesses via `spineScale`) — the
+ * panel itself ignores `shift` and just fills the slot. Both handled in CollapsibleColumn.
  *
  * The wrapper is `pointer-events-none` so the do-list underneath stays interactive
- * wherever the panel is transparent; the panel itself re-enables pointer events.
+ * wherever the panel is transparent; the spine + panel re-enable pointer events.
  */
 function PanelSlot({
   side,
   open,
   shift,
   bleed,
+  topOffset,
   children,
 }: {
   side: "left" | "right"
   open: boolean
   shift: number
   bleed: number
-  children: React.ReactNode
+  /** Px to push the slot top DOWN from the body top to the VISUAL header bottom. 0
+   *  where the body already starts at the header bottom; = headerH for a floating-
+   *  header window whose body fills from the window top. */
+  topOffset: number
+  children: (spineWidth: number, panelWidth: number, spineScale: number, spineShift: number) => React.ReactNode
 }) {
-  // Shrink only a COLLAPSED rail that's narrower than the full width (a covered
-  // ancestor); the open panel and uncovered (leaf/home) rails stay at scale 1.
-  const collapsedScale = !open && bleed < PANEL_RAIL_W ? 0.85 : 1
+  // Spine label/shortcut is ALWAYS full scale (per user): a covered ancestor's spine
+  // used to shrink to 0.85 when its peek (`bleed`) was narrower than the full width,
+  // but that made a middle ancestor's vertical label look inconsistently smaller than
+  // the leaf/home spines. The peek WIDTH (`bleed`) is unchanged — only the artificial
+  // label shrink is dropped — so every spine label now reads identically.
+  const spineScale = 1
   return (
     <div
-      className={cn("pointer-events-none absolute top-1/2 z-10 hidden md:flex", side === "left" ? "left-0" : "right-0")}
-      style={{ transform: `translateY(calc(-50% + ${shift}px))` }}
+      className={cn(
+        "pointer-events-none absolute bottom-0 z-10 hidden md:block",
+        side === "left" ? "left-0" : "right-0",
+      )}
+      // `topOffset` is applied INSTANTLY (see the doc note above): the GSAP frame morph
+      // carries the spine. Because leaf and spine now share an IDENTICAL internal layout
+      // (same body header band, same spine center), this value doesn't change on a
+      // leaf↔spine flip, so there is nothing to snap.
+      style={{ top: topOffset }}
     >
-      <motion.div
-        className="pointer-events-auto flex min-h-0 flex-col"
-        initial={false}
-        animate={{ width: open ? PANEL_OPEN_W : bleed, scale: collapsedScale }}
-        transition={panelTransition}
-        style={{ maxHeight: "calc(50vh)" }}
-      >
-        {children}
-      </motion.div>
+      {children(bleed, PANEL_OPEN_W, spineScale, shift)}
     </div>
   )
 }

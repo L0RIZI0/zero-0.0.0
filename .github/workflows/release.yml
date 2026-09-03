@@ -1,0 +1,107 @@
+# Builds the Zero Windows desktop app and publishes it to the public Vercel Blob
+# "update feed(s)". Triggered ONLY when you push a version tag, e.g.:
+#
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# TWO apps ship from one tag while the WebView2 migration is in flight (M4, coexistence):
+#   • the Electron app  → NSIS installer, electron-updater feed at  /updates
+#   • the WebView2 shell → Velopack installer, UpdateManager feed at /updates-shell
+# The feeds are SEPARATE prefixes in the same public store, each pruned independently, so
+# they never clobber each other. Once the shell is verified on the Surface, the Electron
+# steps (and electron/) get deleted and only the shell feed remains.
+#
+# The installed Surface app checks its feed on launch, downloads any newer version in the
+# background, and applies it (Velopack: near-instant folder-swap relaunch). Data is never
+# touched (the app stays on its stable origin regardless of version).
+#
+# Required repo config (Settings → Secrets and variables → Actions):
+#   • Secret   BLOB_READ_WRITE_TOKEN  – write token for the PUBLIC Blob store
+#     (the feed URL itself is public + hardcoded in package.json / upload-release.mjs)
+name: release-desktop
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+# Only ONE release build may run at a time. The feed (latest.yml + installer) is a single
+# shared Blob folder that each run prunes-then-writes; two overlapping runs can interleave a
+# prune with the other's put and corrupt/empty the feed. A mass tag push (e.g. the v0.2.NNN
+# re-versioning, which fired ~145 builds) would otherwise stampede it. Serialize on the workflow
+# so builds queue instead of racing; do NOT cancel-in-progress (a half-finished upload left the
+# feed mid-write is worse than waiting).
+concurrency:
+  group: release-desktop
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      # The WebView2 resource host (native/resource-host) is published to a self-contained
+      # .exe by scripts/build-resource-host.mjs during electron:build:ci, then bundled via
+      # electron-builder extraResources. Pin the SDK so the publish is reproducible.
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Set version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Releasing version $VERSION"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Windows installer
+        run: pnpm electron:build:ci
+
+      - name: Upload update feed to Blob
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+        run: pnpm release:upload
+
+      # ── WebView2 shell (M4): built + published BESIDE the Electron app until the cutover. ──
+      # The static export `out/` already exists from electron:build:ci above, so shell:pack reuses it
+      # (it re-runs the export harmlessly-fast if not). vpk packs the self-contained shell into a
+      # Velopack installer + feed, uploaded to the SEPARATE public "updates-shell" prefix so it never
+      # touches the Electron "/updates" feed.
+      - name: Install Velopack CLI (vpk)
+        run: dotnet tool install -g vpk --version 1.2.0
+
+      - name: Build Zero shell (Velopack)
+        run: pnpm shell:pack
+
+      - name: Upload shell update feed to Blob
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+        run: pnpm shell:release:upload
+
+      # The one-time bootstrap installer humans grab for the FIRST Surface install (later updates are
+      # automatic from the feed). Also on the public feed, but exposing it as a CI artifact is handier.
+      - name: Publish shell Setup.exe as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zero-shell-Setup
+          path: release-shell/*Setup.exe
+          if-no-files-found: warn
