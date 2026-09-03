@@ -1,13 +1,19 @@
-// Runs `next build` for the DESKTOP (Electron) target, which emits a static export
-// (`output: 'export'`, set in next.config.mjs when BUILD_TARGET=electron).
+// Runs `next build` for the DESKTOP target, emitting a static export (`output: 'export'`,
+// set in next.config.mjs when BUILD_TARGET=electron). This is the SHARED export step the
+// WebView2 shell packs (scripts/build-shell.mjs); Electron is gone (M4b, Sep 2026).
+//
+// ⚠️ The `BUILD_TARGET=electron` / `NEXT_PUBLIC_ZERO_ELECTRON` token is LEGACY but LOAD-BEARING:
+// it's the "packaged static desktop export" signal read by next.config.mjs AND by frozen
+// version snapshots (lib/zero-000, lib/zero-002, components/zero-002, …) that must keep
+// building unchanged, so the name is deliberately kept despite Electron being removed.
 //
 // WHY this wrapper exists: a static export can only contain statically-renderable GET
 // route handlers. Our `app/api/*` routes are server-only — `entities-bible` (force-dynamic
 // + PUT), `parse-schedule` (POST + AI Gateway), `web-title` (force-dynamic fetch proxy) —
 // so `next build` aborts with "cannot be used with output: export". None of them can run in
-// the desktop shell anyway: it serves a static bundle off the `app://` protocol with no
-// Node server. So we TEMPORARILY move `app/api` out of the route tree for the export build,
-// then ALWAYS restore it (finally) so the working tree / normal web build is untouched.
+// the desktop shell anyway: it serves a static bundle off the `https://zero.local` protocol
+// with no Node server. So we TEMPORARILY move `app/api` out of the route tree for the export
+// build, then ALWAYS restore it (finally) so the working tree / normal web build is untouched.
 //
 // The client degrades gracefully when these endpoints are absent (fetches are caught and
 // fall back), and the web-title effect skips the call entirely under NEXT_PUBLIC_ZERO_ELECTRON.
@@ -69,6 +75,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("[electron-build]", err.message)
+  console.error("[static-export]", err.message)
   process.exit(1)
 })
