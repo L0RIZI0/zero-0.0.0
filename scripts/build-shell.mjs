@@ -17,9 +17,11 @@
 
 import { execFileSync } from "node:child_process"
 import { cpSync, existsSync, mkdirSync, rmSync, readFileSync } from "node:fs"
+import os from "node:os"
 import path from "node:path"
 
 const root = process.cwd()
+const VPK_VERSION = "1.2.0" // MUST match the Velopack NuGet ref in ShellHost.csproj
 const VERSION = String(process.argv[2] || JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version)
   .replace(/^v/, "")
 
@@ -38,6 +40,49 @@ const win = process.platform === "win32"
 function run(cmd, args, cwd) {
   console.log(`[shell] ${cmd} ${args.join(" ")}`)
   execFileSync(cmd, args, { stdio: "inherit", cwd: cwd || root, shell: win })
+}
+
+// Resolve the `vpk` CLI, installing it as a .NET global tool if absent. We ALWAYS return an absolute
+// path to the binary rather than trusting PATH: a freshly-installed global tool lands in
+// ~/.dotnet/tools, which the CURRENT shell won't have on PATH yet (the #1 reason `pnpm shell:pack`
+// fails right after installing). CI installs vpk in its own step, so this is mostly for local runs.
+function ensureVpk() {
+  const toolsDir = path.join(os.homedir(), ".dotnet", "tools")
+  const binName = win ? "vpk.exe" : "vpk"
+  const toolPath = path.join(toolsDir, binName)
+
+  const works = (bin) => {
+    try {
+      execFileSync(bin, ["--help"], { stdio: "ignore", shell: win })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  if (existsSync(toolPath) && works(toolPath)) return toolPath
+  if (works("vpk")) return "vpk" // already on PATH (e.g. CI)
+
+  console.log(`[shell] vpk not found — installing Velopack CLI ${VPK_VERSION} as a global tool…`)
+  try {
+    execFileSync("dotnet", ["tool", "install", "--global", "vpk", "--version", VPK_VERSION], {
+      stdio: "inherit",
+      shell: win,
+    })
+  } catch {
+    // Most likely already installed at a different version → move it to the pinned one.
+    execFileSync("dotnet", ["tool", "update", "--global", "vpk", "--version", VPK_VERSION], {
+      stdio: "inherit",
+      shell: win,
+    })
+  }
+
+  if (existsSync(toolPath)) return toolPath
+  if (works("vpk")) return "vpk"
+  console.error(
+    "[shell] Installed vpk but can't locate it. Open a NEW terminal (so ~/.dotnet/tools is on PATH) and re-run `pnpm shell:pack`.",
+  )
+  process.exit(1)
 }
 
 // 1. Clean prior outputs so a stale exe/nupkg can't sneak into the package.
@@ -68,7 +113,9 @@ run(
 cpSync(outExport, path.join(publishDir, "out"), { recursive: true })
 
 // 4. Velopack pack → installer + feed. Zero.exe is the single-file publish output (AssemblyName=Zero).
-run("vpk", [
+//    Resolve (and if needed install) the vpk CLI first, invoking it by absolute path.
+const vpk = ensureVpk()
+run(vpk, [
   "pack",
   "--packId",
   "Zero",
