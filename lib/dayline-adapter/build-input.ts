@@ -55,6 +55,12 @@ function glyphFor(bar: CalBar): DaylineGlyph {
     done: !!face?.showCheck,
     // A per-instance cancelled ghost, OR an entity whose state is cancelled.
     cancelled: !!bar.cancelled || !!face?.cancelled,
+    // v0.3.0 glyph spec: the engine now draws the solid FILL from `filled` (fillsGlyph — complete/closed
+    // fillable kinds), the heavier SCHEDULED stroke from `scheduled`, and the REQUESTED flap from
+    // `requested`. Before v0.3.0 these had no engine treatment; the face model already tracked them.
+    filled: !!face?.filled,
+    scheduled: !!face?.scheduled,
+    requested: !!face?.requested,
   }
 }
 

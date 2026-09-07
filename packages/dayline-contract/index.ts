@@ -86,10 +86,18 @@ export interface DaylineGlyph {
   ongoing?: boolean
   /** Flip the silhouette 180° — a Space with a future planned occurrence (Zero's `glyphFlip180`). */
   flip180?: boolean
-  /** Draw the "done" overlay. */
+  /** Draw the "done" overlay (the check). */
   done?: boolean
   /** Draw the struck-through/cancelled treatment. */
   cancelled?: boolean
+  /** Fill the silhouette solid — a complete/closed fillable kind (Zero's `fillsGlyph`). The v0.3.0
+   *  engine draws the fill from THIS flag, not from `done`; without it a complete entity stays
+   *  outline+check instead of filled. */
+  filled?: boolean
+  /** Heavier outline stroke — the STATE-axis `scheduled` word (not yet begun, pinned to the future). */
+  scheduled?: boolean
+  /** The "requested" flap — a task sent to someone else (Zero's `requested`). */
+  requested?: boolean
 }
 
 /**
