@@ -54,6 +54,11 @@ const MIN_H = 72
 const MAX_H = 420
 const DEFAULT_H = 96
 
+// Sky curves (@zero/dayline v0.4.0): the engine draws a sun arc (default on) and now an optional moon
+// arc (default off), chosen via DaylineData.sky. Persisted per-user like the band height, and surfaced
+// as toggles in the band's existing right-click menu.
+const SKY_KEY = "zero0.dayline.sky"
+
 export interface Zero0DaylineViewProps {
   onOpen: (entityId: string) => void
   // The agenda's menu handlers take a (synthetic) mouse event and read clientX/clientY off it — matching
@@ -107,6 +112,33 @@ export function Zero0DaylineView({
   // reflects focus moves live. It's cheap; it only meaningfully changes output while access is on.
   const activityRev = useActivityRevision()
 
+  // Sky curve visibility, persisted. Sun defaults ON, moon OFF — mirroring the engine's own defaults, so
+  // a fresh user sees exactly today's dayline. Declared BEFORE the data snapshot below because that memo
+  // reads `sky`. Feeds DaylineData.sky; the engine draws/omits each curve accordingly.
+  const [sky, setSky] = useState<{ sun: boolean; moon: boolean }>(() => {
+    if (typeof window === "undefined") return { sun: true, moon: false }
+    try {
+      const raw = window.localStorage.getItem(SKY_KEY)
+      if (raw) {
+        const p = JSON.parse(raw) as { sun?: boolean; moon?: boolean }
+        return { sun: p.sun !== false, moon: !!p.moon }
+      }
+    } catch {
+      /* private-mode Safari or malformed value — fall through to defaults */
+    }
+    return { sun: true, moon: false }
+  })
+  const toggleSky = (which: "sun" | "moon") =>
+    setSky((s) => {
+      const next = { ...s, [which]: !s[which] }
+      try {
+        window.localStorage.setItem(SKY_KEY, JSON.stringify(next))
+      } catch {
+        /* keep the in-memory value */
+      }
+      return next
+    })
+
   // Snapshot rebuilt ONLY on model change (dataRev), activity change (access rail), or rail toggle —
   // never on a clock tick. Because the model is stable during a drag, no update() fires mid-drag, so the
   // engine keeps the dragged chip; on drop, the retime persists and a single update() reflects it.
@@ -117,10 +149,11 @@ export function Zero0DaylineView({
       hi: anchor + GATHER_FUTURE,
       now: anchor,
       rails: { planned: true, recorded: !!showSessionRail, access: !!showAccessRail },
+      sky,
     })
     // `accessRev` only forces a rebuild while access is on (0 otherwise, so it's inert when off).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataRev, showSessionRail, showAccessRail, showAccessRail ? activityRev : 0])
+  }, [dataRev, showSessionRail, showAccessRail, showAccessRail ? activityRev : 0, sky.sun, sky.moon])
 
   // Drag-resizable band height, read lazily from localStorage so it's correct on first paint.
   const [height, setHeight] = useState<number>(() => {
@@ -216,6 +249,9 @@ export function Zero0DaylineView({
           showAccessRail={!!showAccessRail}
           showSessionRail={!!showSessionRail}
           onToggleRail={onToggleRail}
+          showSun={sky.sun}
+          showMoon={sky.moon}
+          onToggleSky={toggleSky}
           onClose={closeMenu}
         />
       )}
@@ -230,6 +266,9 @@ function BandMenu({
   showAccessRail,
   showSessionRail,
   onToggleRail,
+  showSun,
+  showMoon,
+  onToggleSky,
   onClose,
 }: {
   x: number
@@ -237,6 +276,9 @@ function BandMenu({
   showAccessRail: boolean
   showSessionRail: boolean
   onToggleRail?: (rail: "access" | "session", visible: boolean) => void
+  showSun: boolean
+  showMoon: boolean
+  onToggleSky: (which: "sun" | "moon") => void
   onClose: () => void
 }) {
   return (
@@ -265,6 +307,11 @@ function BandMenu({
             onClose()
           }}
         />
+        <div className="my-1 h-px bg-border" />
+        <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">Sky</p>
+        {/* Sky toggles leave the menu OPEN (no onClose) so both curves can be flipped in one pass. */}
+        <MenuItem checked={showSun} label="Sun" onClick={() => onToggleSky("sun")} />
+        <MenuItem checked={showMoon} label="Moon" onClick={() => onToggleSky("moon")} />
       </div>
     </>
   )
