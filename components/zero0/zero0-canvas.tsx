@@ -2469,7 +2469,7 @@ export function Zero0Canvas() {
       className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
-      {/* ── GLUED TOP: live clock ───────��──��───────�����─���───���───────────────────���─
+      {/* ── GLUED TOP: live clock ───────��──��───────�����─�����───���───────────────────���─
           Permanent top chrome (mirrors the footer's glued-bottom role): the live full
           date + time WITH seconds, top-left. Always present �� for any open entity, and
           regardless of which frames are toggled below. `min-h` reserves its row so the
@@ -2562,7 +2562,7 @@ export function Zero0Canvas() {
           directions animate; `inert` drops it from tab/hit-testing when hidden. */}
       <Zero0Frame open={showZeroHeader}>
       <header
-        className="relative border-b border-border p-4 text-[10px] leading-relaxed text-muted-foreground tabular-nums"
+        className="relative border-b border-border bg-transparent p-4 text-[10px] leading-relaxed text-muted-foreground tabular-nums"
         // Right-click the header chrome → minimize/maximize this frame (same frame menu as
         // the time frames). Guarded so a right-click on the breadcrumb/siblings (which target
         // an ENTITY) isn't hijacked: only fires when the target didn't handle it itself.
