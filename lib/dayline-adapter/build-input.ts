@@ -103,13 +103,15 @@ export interface BuildInputArgs {
   now?: number
   /** Rail visibility intent. Zero's defaults: planned ON, recorded/access OFF. */
   rails?: { planned?: boolean; recorded?: boolean; access?: boolean }
+  /** Sky curve intent (v0.4.0 engine). Zero's defaults: sun ON, moon OFF. */
+  sky?: { sun?: boolean; moon?: boolean }
 }
 
 /**
  * Build a full `DaylineData` snapshot. Recorded marks are included only when `rails.recorded` is on
  * (Zero's dayline hides them by default and also drops AUTO plays); planned marks always build.
  */
-export function buildDaylineInput({ lo, hi, now = Date.now(), rails }: BuildInputArgs): DaylineData {
+export function buildDaylineInput({ lo, hi, now = Date.now(), rails, sky }: BuildInputArgs): DaylineData {
   const showRecorded = rails?.recorded ?? false
   const showAccess = rails?.access ?? false
   const { planned, recorded } = getCalendarBars(lo, hi, now)
@@ -136,5 +138,6 @@ export function buildDaylineInput({ lo, hi, now = Date.now(), rails }: BuildInpu
     now,
     marks,
     rails: { planned: rails?.planned ?? true, recorded: showRecorded, access: showAccess },
+    sky: { sun: sky?.sun ?? true, moon: sky?.moon ?? false },
   }
 }

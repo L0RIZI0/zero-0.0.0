@@ -171,6 +171,9 @@ export interface DaylineData {
   /** Which rails Zero wants shown. The engine still decides layout; this is Zero's visibility intent
    *  (Zero defaults access + recorded OFF, planned ON). */
   rails?: { planned?: boolean; recorded?: boolean; access?: boolean }
+  /** Sky curves the engine draws behind the marks (@zero/dayline v0.4.0). Zero defaults: sun ON,
+   *  moon OFF. Omitting this leaves the engine's own defaults (also sun on / moon off). */
+  sky?: { sun?: boolean; moon?: boolean }
 }
 
 /**
