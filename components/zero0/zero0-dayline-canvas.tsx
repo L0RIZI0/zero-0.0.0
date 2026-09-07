@@ -19,7 +19,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useRef } from "react"
-import { mountDayline } from "@/lib/dayline"
+import { mountDayline } from "@zero/dayline"
 import { beginDaylineInteraction, endDaylineInteraction } from "@/lib/zero/tick-gate"
 import type {
   DaylineData,
@@ -55,7 +55,10 @@ export function Zero0DaylineCanvas({ data, theme, callbacks, options, className 
       surface: canvas,
       data,
       theme,
-      options,
+      // Zero drives its own clock: "wall" means the engine reads real time itself and must NOT be fed a
+      // per-second `now` via update() (that would rebuild marks mid-drag). nowRestFraction keeps NOW at
+      // 1/3 from the left at rest. Caller `options` can still override these.
+      options: { clock: "wall", nowRestFraction: 1 / 3, ...options },
       // Indirect through the ref so the engine always calls the latest handlers.
       callbacks: {
         onActivate: (id, mark) => cbRef.current?.onActivate?.(id, mark),

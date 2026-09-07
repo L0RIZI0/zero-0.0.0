@@ -8,6 +8,9 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  // `@zero/dayline` (Grok's dayline engine repo) ships raw TypeScript with no build output, so Next
+  // must compile it just like in-tree source. Installed via git tag: github:L0RIZI0/zero-dayline#vX.Y.Z.
+  transpilePackages: ["@zero/dayline"],
   images: {
     unoptimized: true,
   },

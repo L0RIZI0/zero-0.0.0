@@ -127,6 +127,14 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
   const endEpoch = useMemo(() => toEpoch(endDate, endTime), [endDate, endTime])
   const untilEpoch = useMemo(() => (untilDate ? toEpoch(untilDate, "23:59") : null), [untilDate])
   const isPast = startEpoch != null && startEpoch <= now
+  // ONTOLOGY (Loris, v0.2.360): a span whose END is in the FUTURE is a PLAN, not a record — a recorded
+  // fact is past-tense and can't end in the future. So even when the START is in the past, an explicit
+  // future end makes this a PLANNED OCCURRENCE that straddles `now` (⇒ it reads ongoing and its glyph
+  // spins), NOT a recorded session. Only a span that is ENTIRELY past records a session. This is the
+  // classification chokepoint for the plan flow; the same invariant should be enforced in the engine
+  // across every entry point (upstream ask for Grok's engine — the ontology owns this rule).
+  const endsInFuture = mode === "span" && hasEnd && endEpoch != null && endEpoch > now
+  const treatAsFuture = !isPast || endsInFuture
 
   // A past start defaults the "still happening" toggle ON (Loris' ask: ON by default when no end is
   // given). We only auto-flip when crossing the past boundary, never fighting a manual toggle after.
@@ -241,9 +249,10 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
       end = endEpoch
     }
 
-    if (!isPast) {
-      // FUTURE + RECURRING ⇒ a repeat rule anchored at the chosen start/end (Phase 2).
-      if (recur) {
+    if (treatAsFuture) {
+      // FUTURE + RECURRING ⇒ a repeat rule anchored at the chosen start/end (Phase 2). Recurrence is
+      // future-ANCHOR-only, so it never applies to a past-start / future-end straddling span.
+      if (recur && !isPast) {
         if (untilEpoch != null && untilEpoch <= startEpoch)
           return { result: null, preview: "", invalid: "Until must be after the start" }
         const rule = buildRule()
@@ -255,8 +264,9 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
       const span = end != null ? `${fmt(startEpoch)} → ${fmt(end)} · ${formatDuration(end - startEpoch)}` : fmt(startEpoch)
       return { result: { kind: "occurrence", start: startEpoch, end }, preview: `Planned occurrence · ${span}`, invalid: null }
     }
-    // PAST ⇒ a recorded session. Ongoing ⇒ no end (still running). Not ongoing ⇒ end = the span end,
-    // else NOW (it started in the past and ran until now).
+    // ENTIRELY PAST ⇒ a recorded session (a future end was rerouted to a planned occurrence above).
+    // Ongoing ⇒ no end (still running). Not ongoing ⇒ end = the span end, else NOW (started in the
+    // past and ran until now).
     if (ongoing) {
       return { result: { kind: "session", start: startEpoch }, preview: `Recorded session · ${fmt(startEpoch)} → ongoing`, invalid: null }
     }
@@ -266,7 +276,7 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
       preview: `Recorded session · ${fmt(startEpoch)} → ${fmt(sessEnd)} · ${formatDuration(sessEnd - startEpoch)}`,
       invalid: null,
     }
-  }, [mode, startEpoch, endEpoch, hasEnd, isPast, ongoing, now, recur, freq, interval, byWeekday, untilEpoch, startDate, blocks, buildRule, durH, durM])
+  }, [mode, startEpoch, endEpoch, hasEnd, isPast, treatAsFuture, ongoing, now, recur, freq, interval, byWeekday, untilEpoch, startDate, blocks, buildRule, durH, durM])
 
   // EXISTING REPEATS (Phase 2) — the entity's current rules, so they can be removed in place. The
   // primary `repeat` (anchored by `repeatAnchor`) comes first, then each additional `series[]` entry.
@@ -629,8 +639,10 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
           </div>
         )}
 
-        {/* STILL-HAPPENING toggle (past start, span/point only — blocks & due never record sessions) */}
-        {isPast && mode !== "due" && mode !== "blocks" && (
+        {/* STILL-HAPPENING toggle (past start, span/point only — blocks & due never record sessions).
+            Hidden when the span ENDS in the future: that's a planned occurrence, not a recordable
+            session, so "record as ongoing session" would be misleading. */}
+        {isPast && !endsInFuture && mode !== "due" && mode !== "blocks" && (
           <label className="mb-3 flex cursor-pointer items-center gap-2 text-[11px] text-muted-foreground">
             <input type="checkbox" checked={ongoing} onChange={(e) => setOngoing(e.target.checked)} className="[color-scheme:dark]" />
             still happening (record as an ongoing session)
