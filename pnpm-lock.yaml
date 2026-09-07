@@ -26,6 +26,9 @@ importers:
       '@vercel/blob':
         specifier: ^2.5.0
         version: 2.5.0
+      '@zero/dayline':
+        specifier: github:L0RIZI0/zero-dayline#v0.2.0
+        version: https://codeload.github.com/L0RIZI0/zero-dayline/tar.gz/68d5b36b0db01332445885e4de1cc60510182668
       ai:
         specifier: ^7.0.6
         version: 7.0.6(zod@4.4.3)
@@ -1091,6 +1094,10 @@ packages:
 
   '@workflow/serde@4.1.0':
     resolution: {integrity: sha512-pav4F2BoirECWR7Nf1TKt+2eETcBj7jj4cBefQ8VXQCA6NPkaKeLfj/zMgi+3zYV5ZIBT4GuUiphsj0/b9hPQQ==}
+
+  '@zero/dayline@https://codeload.github.com/L0RIZI0/zero-dayline/tar.gz/68d5b36b0db01332445885e4de1cc60510182668':
+    resolution: {gitHosted: true, integrity: sha512-BD2rBUe7dIrvQehrMs01IH1jIR3KfcUEeAPqlnRY5f1D5J8nlu/XWPhgyYf+0RtUkrhYul+XfCEJw3Ladhp+mQ==, tarball: https://codeload.github.com/L0RIZI0/zero-dayline/tar.gz/68d5b36b0db01332445885e4de1cc60510182668}
+    version: 0.2.0
 
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
@@ -3771,6 +3778,8 @@ snapshots:
       jose: 5.10.0
 
   '@workflow/serde@4.1.0': {}
+
+  '@zero/dayline@https://codeload.github.com/L0RIZI0/zero-dayline/tar.gz/68d5b36b0db01332445885e4de1cc60510182668': {}
 
   accepts@2.0.0:
     dependencies:
