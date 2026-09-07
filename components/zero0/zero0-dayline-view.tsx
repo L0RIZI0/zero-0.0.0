@@ -264,10 +264,11 @@ export function Zero0DaylineView({
           onPointerDown={onResizeDown}
           onPointerMove={onResizeMove}
           onPointerUp={onResizeUp}
-          // Anchored to the BAND bottom (bleed px above the box bottom), not the canvas bottom, so the
-          // grab strip stays on the visible band edge and doesn't float over the bleed region.
-          style={{ bottom: bleed }}
-          className="absolute inset-x-0 z-10 h-1.5 cursor-ns-resize hover:bg-accent/40"
+          // `bottom-0` sits at the BAND edge: the positioned ancestor is only `bandH` tall (the bleed box
+          // carries a negative margin), so the canvas bleed spills BELOW this container. The grab strip
+          // lands over the band's bottom edge (above §1, which starts exactly at that edge), so resizing
+          // works. z-10 keeps it above the static canvas within this frame's stacking context.
+          className="absolute inset-x-0 bottom-0 z-10 h-1.5 cursor-ns-resize hover:bg-accent/40"
         />
       )}
 
