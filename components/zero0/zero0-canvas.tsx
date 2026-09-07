@@ -2469,7 +2469,7 @@ export function Zero0Canvas() {
       className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
-      {/* ── GLUED TOP: live clock ───────��──��───────�����─�������───���───────────────────���─
+      {/* ── GLUED TOP: live clock ───────��──��───────�����─���������───���───────────────────���─
           Permanent top chrome (mirrors the footer's glued-bottom role): the live full
           date + time WITH seconds, top-left. Always present �� for any open entity, and
           regardless of which frames are toggled below. `min-h` reserves its row so the
@@ -2531,7 +2531,10 @@ export function Zero0Canvas() {
           transition, no per-frame JS). Kept MOUNTED while collapsed so BOTH directions
           animate; `inert` drops it from tab/hit-testing when hidden. */}
       {mounted && (
-        <Zero0Frame open={showAgenda}>
+        // `allowOverflow` lets the planned dayline's sky-bleed curves spill below the AGENDA frame onto
+        // whatever sits directly beneath (§1 when ACTIVITY is hidden). `relative z-0` keeps the bleed
+        // BEHIND §1's chrome, which is `relative z-10` so its (transparent) header paints over the curves.
+        <Zero0Frame open={showAgenda} allowOverflow className="relative z-0">
           <Zero0Agenda
             onOpen={navigateTo}
             onContextMenuEntity={openMenuById}
@@ -2575,7 +2578,7 @@ export function Zero0Canvas() {
           and — like every frame in the stack — collapses with the dep-free grid-rows
           0fr↔1fr animation so the frames below slide up/down. Kept mounted so BOTH
           directions animate; `inert` drops it from tab/hit-testing when hidden. */}
-      <Zero0Frame open={showZeroHeader}>
+      <Zero0Frame open={showZeroHeader} className="relative z-10">
       <header
         className="relative border-b border-border p-4 text-[10px] leading-relaxed text-muted-foreground tabular-nums"
         // Right-click the header chrome → minimize/maximize this frame (same frame menu as
@@ -2662,7 +2665,7 @@ export function Zero0Canvas() {
       </header>
       </Zero0Frame>
 
-      {/* ── ENTITY CONTENT ────────────────────────────────────────────────���────
+      {/* ── ENTITY CONTENT ─────��──────────────────────────────────────────���────
           The open node as raw data: META, then CHILDREN. Recursive — the root
           Individual renders exactly like any other entity. `min-h-0` lets this flex
           child shrink below its content so ONLY this band scrolls — the header,

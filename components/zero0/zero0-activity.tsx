@@ -14,7 +14,7 @@ import {
 } from "@/lib/zero/activity-log"
 import { Zero0Face } from "@/components/zero0/zero0-face"
 import { Zero0Dayline, type DaylineOccRef } from "@/components/zero0/zero0-dayline"
-import { Zero0DaylineView } from "@/components/zero0/zero0-dayline-view"
+import { Zero0DaylineView, AGENDA_SKY_BLEED_PX } from "@/components/zero0/zero0-dayline-view"
 import { Zero0Calendar } from "@/components/zero0/zero0-calendar"
 import { MorphOverlay, captureCells, type MorphCell } from "@/components/zero0/zero0-morph-overlay"
 import { Zero0FrameMarker } from "@/components/zero0/zero0-frame-marker"
@@ -331,6 +331,10 @@ export function Zero0Agenda({
               showAccessRail={showAccessRail}
               showSessionRail={showSessionRail}
               onToggleRail={setRailVisible}
+              // Let the planned dayline's sun/moon curves bleed below the band. When a frame (ACTIVITY)
+              // sits between the agenda and §1 it simply crops the bleed; when §1 is the direct neighbour
+              // the curves show behind the header. Only the AGENDA passes this — the access tracker doesn't.
+              skyBleedPx={AGENDA_SKY_BLEED_PX}
             />
             {/* v0.2.346 — the inline axis toggle used to live here. It moved INTO the band's right-click
                 menu (Axis → Linear/Fisheye) together with the new rail toggles: at `-bottom-4` it fell

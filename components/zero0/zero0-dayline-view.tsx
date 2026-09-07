@@ -59,6 +59,12 @@ const DEFAULT_H = 96
 // as toggles in the band's existing right-click menu.
 const SKY_KEY = "zero0.dayline.sky"
 
+// Sky-bleed (@zero/dayline v0.7.7): extra transparent canvas pixels BELOW the band into which only the
+// sun/moon curves draw. The AGENDA passes this so, when §1 sits directly beneath the dayline, the curves
+// bleed behind the §1 header. MUST match the negative margin the canvas applies to the AGENDA frame so
+// the frame below slides up by exactly this much. Mount-time only (the engine can't change it live).
+export const AGENDA_SKY_BLEED_PX = 72
+
 export interface Zero0DaylineViewProps {
   onOpen: (entityId: string) => void
   // The agenda's menu handlers take a (synthetic) mouse event and read clientX/clientY off it — matching
@@ -77,6 +83,9 @@ export interface Zero0DaylineViewProps {
   showAccessRail?: boolean
   showSessionRail?: boolean
   onToggleRail?: (rail: "access" | "session", visible: boolean) => void
+  /** Extra transparent canvas pixels below the band for sun/moon bleed (v0.7.7). The band's flow height
+   *  stays `bandH`; the canvas box is `bandH + skyBleedPx` and the excess overlays whatever is below. */
+  skyBleedPx?: number
 }
 
 export function Zero0DaylineView({
@@ -92,6 +101,7 @@ export function Zero0DaylineView({
   showAccessRail,
   showSessionRail,
   onToggleRail,
+  skyBleedPx = 0,
 }: Zero0DaylineViewProps) {
   // NOTE: no React clock tick. The engine advances its own now-marker (wall clock, see mount.ts), so a
   // per-second rebuild here is both unnecessary and harmful — it called handle.update() every second,
@@ -192,6 +202,8 @@ export function Zero0DaylineView({
     }
   }
   const bandH = minimized ? 40 : height
+  // No bleed while minimized (the band is a thin strip with no room, and there's nothing to reveal).
+  const bleed = minimized ? 0 : skyBleedPx
 
   // Band right-click menu (rail visibility). The axis toggle is gone — the engine owns its axis.
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -220,14 +232,28 @@ export function Zero0DaylineView({
       // occurrence / session / band menu) — this just prevents the frame menu from racing it.
       onContextMenu={(e) => e.stopPropagation()}
     >
-      <div style={{ height: bandH }}>
-        <Zero0DaylineCanvas
-          data={data}
-          theme={theme}
-          callbacks={callbacks}
-          options={{ nowRestFraction: 1 / 3 }}
-          className="h-full w-full"
-        />
+      {/* The canvas BOX is `bandH + bleed` tall so the engine gets an alpha canvas with room to draw the
+          sun/moon strokes below the band. A matching NEGATIVE bottom margin means the parent flow still
+          reserves only `bandH`, so the sibling below slides up under the transparent bleed. The bleed is
+          non-interactive (`pointer-events-none`) so clicks/hovers pass through to whatever sits beneath;
+          the engine's own hit-testing uses `height - skyBleedPx`, so the band area still responds. Bleed
+          is disabled while minimized (no room, and the band collapses to a thin strip). */}
+      <div
+        className="pointer-events-none"
+        style={{
+          height: bandH + bleed,
+          marginBottom: bleed ? -bleed : undefined,
+        }}
+      >
+        <div className="pointer-events-auto h-full w-full">
+          <Zero0DaylineCanvas
+            data={data}
+            theme={theme}
+            callbacks={callbacks}
+            options={{ nowRestFraction: 1 / 3, skyBleedPx: bleed }}
+            className="h-full w-full"
+          />
+        </div>
       </div>
       {!minimized && (
         <div
@@ -238,7 +264,10 @@ export function Zero0DaylineView({
           onPointerDown={onResizeDown}
           onPointerMove={onResizeMove}
           onPointerUp={onResizeUp}
-          className="absolute inset-x-0 bottom-0 z-10 h-1.5 cursor-ns-resize hover:bg-accent/40"
+          // Anchored to the BAND bottom (bleed px above the box bottom), not the canvas bottom, so the
+          // grab strip stays on the visible band edge and doesn't float over the bleed region.
+          style={{ bottom: bleed }}
+          className="absolute inset-x-0 z-10 h-1.5 cursor-ns-resize hover:bg-accent/40"
         />
       )}
 
