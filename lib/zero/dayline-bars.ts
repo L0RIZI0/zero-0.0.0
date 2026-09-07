@@ -125,10 +125,13 @@ export function getCalendarBars(lo: number, hi: number, now: number = Date.now()
     if (st == null && endNum == null) continue
     const closed = isClosed(occ, now)
     const closeAt = closed && endNum == null ? computeCloseAt(occ, now) : undefined
-    const ongoing = !closed && endNum == null && startNum != null && startNum <= now
+    const liveOpen = !closed && endNum == null && startNum != null && startNum <= now
+    const ongoing =
+      liveOpen ||
+      (!closed && startNum != null && endNum != null && startNum <= now && now < endNum)
     const unknownEnd = !closed && endNum == null && startNum != null
     const unknownStart = endNum != null && st == null
-    const en = endNum ?? closeAt ?? (ongoing ? now : st!)
+    const en = endNum ?? closeAt ?? (liveOpen ? now : st!)
     const anchor = st ?? en
     if (en < lo || anchor > hi) continue
     // A zero-length point in time. AT-markers and DUE deadlines both collapse here (an `at` or
@@ -152,7 +155,7 @@ export function getCalendarBars(lo: number, hi: number, now: number = Date.now()
       // carries a dueDate is NOT collapsed.
       instant: occ.kind === "instant" || (point && (s.at != null || s.dueDate != null)),
       ongoing,
-      openEnded: ongoing,
+      openEnded: liveOpen,
       unknownEnd,
       unknownStart,
       sky: isSleepSpan ? sleepSkyBackground(occ.occKey) : undefined,

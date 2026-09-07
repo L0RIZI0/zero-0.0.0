@@ -41,12 +41,16 @@ function toDaylineKind(kind: string | undefined): DaylineKind {
  * state; the FACE MODEL adds the two things a bar doesn't track — the "done" check and the Space
  * 180°-flip. `getFaceModel` is pure and cheap (documented safe to call per render).
  */
-function glyphFor(bar: CalBar): DaylineGlyph {
+function glyphFor(bar: CalBar, now: number): DaylineGlyph {
   const entity = getEntity(bar.id)
-  const face = entity ? getFaceModel(entity, bar.endMs) : null
-  // Per-BLOCK liveness (v0.2.334): a block spins when it is itself ongoing/open-ended, not merely
-  // because its entity is live somewhere else. `openEnded` covers the recorded open session.
-  const blockLive = !!bar.ongoing || !!bar.openEnded
+  const face = entity ? getFaceModel(entity, now) : null
+  // Per-BLOCK liveness: the chip spins when THIS bar is happening (open-ended, or start<=now<end),
+  // not merely because the entity is live somewhere else. A planned span dragged to overlap now
+  // is live even with a declared end (v0.2.360 invariant).
+  const blockLive =
+    !!bar.ongoing ||
+    !!bar.openEnded ||
+    (bar.startMs != null && bar.startMs <= now && bar.endMs > now)
   return {
     kind: toDaylineKind(entity?.kind ?? undefined),
     accent: bar.color,
@@ -65,7 +69,7 @@ function glyphFor(bar: CalBar): DaylineGlyph {
 }
 
 /** Map one absolute-time `CalBar` onto a contract `DaylineMark`. Pure field translation. */
-function toMark(bar: CalBar): DaylineMark {
+function toMark(bar: CalBar, now: number): DaylineMark {
   const entity = getEntity(bar.id)
   return {
     key: bar.key,
@@ -75,7 +79,7 @@ function toMark(bar: CalBar): DaylineMark {
     start: bar.startMs,
     end: bar.endMs,
     title: bar.title,
-    glyph: glyphFor(bar),
+    glyph: glyphFor(bar, now),
     point: bar.point || undefined,
     instant: bar.instant,
     ongoing: bar.ongoing,
@@ -115,13 +119,13 @@ export function buildDaylineInput({ lo, hi, now = Date.now(), rails }: BuildInpu
   const { planned, recorded } = getCalendarBars(lo, hi, now)
 
   const marks: DaylineMark[] = []
-  for (const bar of planned) marks.push(toMark(bar))
+  for (const bar of planned) marks.push(toMark(bar, now))
   if (showRecorded) {
     for (const bar of recorded) {
       // Mirror the dayline's rule: the recorded rail excludes AUTO plays (they're access, not a
       // deliberate session). The calendar shows them dimmed; the dayline does not.
       if (bar.auto) continue
-      marks.push(toMark(bar))
+      marks.push(toMark(bar, now))
     }
   }
   // ACCESS rail (v0.2.352): the machine-truth focus record, from the activity log — a DIFFERENT source
@@ -129,7 +133,7 @@ export function buildDaylineInput({ lo, hi, now = Date.now(), rails }: BuildInpu
   // access marks (incl. the current open focus, e.g. the v0 resource you're viewing) never reached the
   // engine even though it renders them and the toggle was on. Gather only when the rail is on.
   if (showAccess) {
-    for (const bar of getAccessBars(lo, hi, now)) marks.push(toMark(bar))
+    for (const bar of getAccessBars(lo, hi, now)) marks.push(toMark(bar, now))
   }
 
   return {

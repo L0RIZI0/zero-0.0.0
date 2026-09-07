@@ -50,9 +50,22 @@ const GATHER_FUTURE = 400 * DAY
 // re-lays-out to whatever height its canvas gets (ResizeObserver → handle.resize), so a taller band
 // simply shows more of the sun arc + rails.
 const HEIGHT_KEY = "zero0.dayline.height"
+const SKY_KEY = "zero0.dayline.sky"
 const MIN_H = 72
 const MAX_H = 420
 const DEFAULT_H = 96
+
+function readSky(): { sun: boolean; moon: boolean } {
+  if (typeof window === "undefined") return { sun: true, moon: false }
+  try {
+    const raw = window.localStorage.getItem(SKY_KEY)
+    if (!raw) return { sun: true, moon: false }
+    const p = JSON.parse(raw)
+    return { sun: p.sun !== false, moon: !!p.moon }
+  } catch {
+    return { sun: true, moon: false }
+  }
+}
 
 export interface Zero0DaylineViewProps {
   onOpen: (entityId: string) => void
@@ -107,20 +120,31 @@ export function Zero0DaylineView({
   // reflects focus moves live. It's cheap; it only meaningfully changes output while access is on.
   const activityRev = useActivityRevision()
 
+  const [sky, setSky] = useState(readSky)
+  const persistSky = (next: { sun: boolean; moon: boolean }) => {
+    setSky(next)
+    try {
+      window.localStorage.setItem(SKY_KEY, JSON.stringify(next))
+    } catch {
+      /* private-mode */
+    }
+  }
+
   // Snapshot rebuilt ONLY on model change (dataRev), activity change (access rail), or rail toggle —
   // never on a clock tick. Because the model is stable during a drag, no update() fires mid-drag, so the
   // engine keeps the dragged chip; on drop, the retime persists and a single update() reflects it.
   const data = useMemo(() => {
     const anchor = Date.now()
-    return buildDaylineInput({
+    const input = buildDaylineInput({
       lo: anchor - GATHER_PAST,
       hi: anchor + GATHER_FUTURE,
       now: anchor,
       rails: { planned: true, recorded: !!showSessionRail, access: !!showAccessRail },
     })
+    return { ...input, sky }
     // `accessRev` only forces a rebuild while access is on (0 otherwise, so it's inert when off).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataRev, showSessionRail, showAccessRail, showAccessRail ? activityRev : 0])
+  }, [dataRev, showSessionRail, showAccessRail, showAccessRail ? activityRev : 0, sky])
 
   // Drag-resizable band height, read lazily from localStorage so it's correct on first paint.
   const [height, setHeight] = useState<number>(() => {
@@ -215,7 +239,10 @@ export function Zero0DaylineView({
           y={menu.y}
           showAccessRail={!!showAccessRail}
           showSessionRail={!!showSessionRail}
+          showSun={sky.sun}
+          showMoon={sky.moon}
           onToggleRail={onToggleRail}
+          onToggleSky={(key, visible) => persistSky({ ...sky, [key]: visible })}
           onClose={closeMenu}
         />
       )}
@@ -229,14 +256,20 @@ function BandMenu({
   y,
   showAccessRail,
   showSessionRail,
+  showSun,
+  showMoon,
   onToggleRail,
+  onToggleSky,
   onClose,
 }: {
   x: number
   y: number
   showAccessRail: boolean
   showSessionRail: boolean
+  showSun: boolean
+  showMoon: boolean
   onToggleRail?: (rail: "access" | "session", visible: boolean) => void
+  onToggleSky?: (key: "sun" | "moon", visible: boolean) => void
   onClose: () => void
 }) {
   return (
@@ -248,7 +281,7 @@ function BandMenu({
         className="fixed z-50 min-w-44 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
         style={{ left: x, top: y }}
       >
-        <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">Show</p>
+        <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">Rails</p>
         <MenuItem
           checked={showSessionRail}
           label="Session rail"
@@ -262,6 +295,23 @@ function BandMenu({
           label="Access rail"
           onClick={() => {
             onToggleRail?.("access", !showAccessRail)
+            onClose()
+          }}
+        />
+        <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">Sky</p>
+        <MenuItem
+          checked={showSun}
+          label="Sun"
+          onClick={() => {
+            onToggleSky?.("sun", !showSun)
+            onClose()
+          }}
+        />
+        <MenuItem
+          checked={showMoon}
+          label="Moon"
+          onClick={() => {
+            onToggleSky?.("moon", !showMoon)
             onClose()
           }}
         />
