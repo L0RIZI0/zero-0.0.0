@@ -64,6 +64,22 @@ function looksBatteryless(s: BatterySnapshot): boolean {
 
 export function Zero0BatteryIndicator() {
   const [state, setState] = useState<BatterySnapshot | null>(null)
+  // Show ONLY while the app is OS-fullscreen (v0.2.363, Loris ask): fullscreen hides the Windows taskbar
+  // and its system battery readout, so Zero surfaces its own; windowed/maximized keeps the taskbar's, so
+  // we stay out of the way. Driven by the desktop bridge — on the web (no `window.zero.win`) it stays
+  // false, so the footer battery never shows in a browser.
+  const [fullscreen, setFullscreen] = useState(false)
+
+  useEffect(() => {
+    const win = typeof window !== "undefined" ? window.zero?.win : undefined
+    if (!win?.onFullScreenChange) return
+    let cancelled = false
+    win.isFullScreen?.()
+      .then((fs) => { if (!cancelled) setFullscreen(!!fs) })
+      .catch(() => {})
+    const off = win.onFullScreenChange((fs) => setFullscreen(!!fs))
+    return () => { cancelled = true; off?.() }
+  }, [])
 
   useEffect(() => {
     const getBattery = getBatteryApi()
@@ -100,7 +116,14 @@ export function Zero0BatteryIndicator() {
     }
   }, [])
 
+  // Nothing to show if there's no real battery (web desktop / headless / batteryless). Returning null
+  // here is fine — there's no entrance/exit to animate in that case, and it keeps the footer clean.
   if (!state || looksBatteryless(state)) return null
+
+  // The battery is PRESENT but only VISIBLE in OS-fullscreen. We keep the element mounted whenever a
+  // battery exists and merely toggle `show`, so BOTH the entrance (fullscreen on) and the exit
+  // (fullscreen off) transition — a component that unmounts on exit can't animate out.
+  const show = fullscreen
 
   const pct = Math.round(state.level * 100)
   const title = state.charging
@@ -113,16 +136,37 @@ export function Zero0BatteryIndicator() {
   // token so it reads at a glance without adding a new color to the palette.
   const low = !state.charging && pct <= 20
 
+  // ENTRANCE/EXIT ANIMATION (v0.2.363, Loris ask): slide in from the right / out to the right, pushing
+  // the version label with an ease-out. The OUTER grid animates `grid-template-columns` 0fr↔1fr — the
+  // same width-collapse trick as Zero0Frame — so the element's footprint eases between 0 and its content
+  // width, and because it's the right-most item in an `ml-auto` cluster, that width change PUSHES the
+  // version label left (in) / lets it slide back right (out). The INNER layer adds a translate+fade so
+  // the pill reads as sliding rather than merely revealing. `pl-3` lives INSIDE the collapsing/clipping
+  // region, so the gap to the version appears with the pill and fully vanishes when collapsed.
   return (
     <span
-      title={title}
-      aria-label={title}
-      className={
-        "inline-flex items-center gap-1.5 tabular-nums " + (low ? "text-destructive" : "text-muted-foreground")
-      }
+      aria-hidden={!show}
+      className="grid transition-[grid-template-columns] duration-500 ease-out motion-reduce:transition-none"
+      style={{ gridTemplateColumns: show ? "1fr" : "0fr" }}
     >
-      <BatteryGlyph level={state.level} charging={state.charging} />
-      <span>{pct}%</span>
+      {/* Clip layer (grid item): NO padding of its own, so `overflow-hidden` lets the track collapse
+          fully to 0 width when hidden — leaving no residual gap after the version label. */}
+      <span className="overflow-hidden">
+        {/* Content layer: carries the `pl-3` gap-to-version and the slide+fade. Both live INSIDE the
+            clip, so they vanish entirely when collapsed and ease back in on show. */}
+        <span
+          title={title}
+          aria-label={title}
+          className={
+            "flex items-center gap-1.5 whitespace-nowrap pl-3 tabular-nums transition-[opacity,transform] duration-500 ease-out motion-reduce:transition-none " +
+            (show ? "translate-x-0 opacity-100 " : "translate-x-2 opacity-0 ") +
+            (low ? "text-destructive" : "text-muted-foreground")
+          }
+        >
+          <BatteryGlyph level={state.level} charging={state.charging} />
+          <span>{pct}%</span>
+        </span>
+      </span>
     </span>
   )
 }

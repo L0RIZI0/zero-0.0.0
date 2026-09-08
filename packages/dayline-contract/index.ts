@@ -248,6 +248,11 @@ export interface DaylineHandle {
   setTheme: (theme: DaylineTheme) => void
   resize: (width: number, height: number) => void
   destroy: () => void
+  /** Recenter the view so "now" is back at its rest position — the same effect as the engine's built-in
+   *  `n` / Home shortcut and double-click, but callable imperatively so Zero chrome (the clock-header
+   *  time) can trigger it. Optional: present from @zero/dayline once the engine exposes it; Zero calls it
+   *  defensively (`handle.goToNow?.()`), so an older engine is a harmless no-op. */
+  goToNow?: () => void
 }
 
 /**

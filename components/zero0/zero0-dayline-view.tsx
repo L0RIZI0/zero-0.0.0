@@ -20,6 +20,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { Zero0DaylineCanvas, readDaylineTheme } from "./zero0-dayline-canvas"
 import { buildDaylineInput } from "@/lib/dayline-adapter/build-input"
 import { useActivityRevision } from "@/lib/zero/activity-log"
@@ -311,7 +312,13 @@ function BandMenu({
   onToggleSky: (which: "sun" | "moon") => void
   onClose: () => void
 }) {
-  return (
+  // PORTAL TO <body>: the menu is rendered from inside the AGENDA frame, whose stacking context is
+  // `z-0`, while §1 is a sibling `z-10` context. Because a stacking context is atomic, the menu's own
+  // `fixed z-50` cannot rise above §1 from in there — so any part overlapping §1 gets sampled by §1's
+  // `backdrop-blur-xs` and comes out frosted (the reported bug). Portaling to <body> lifts the menu to
+  // the ROOT stacking context, where it paints AFTER §1 and is never part of §1's backdrop.
+  if (typeof document === "undefined") return null
+  return createPortal(
     <>
       {/* Dismiss layer. `data-zero-menu` mirrors the legacy tag so global dismiss logic ignores it. */}
       <div className="fixed inset-0 z-40" data-zero-menu onPointerDown={onClose} onContextMenu={(e) => { e.preventDefault(); onClose() }} />
@@ -343,7 +350,8 @@ function BandMenu({
         <MenuItem checked={showSun} label="Sun" onClick={() => onToggleSky("sun")} />
         <MenuItem checked={showMoon} label="Moon" onClick={() => onToggleSky("moon")} />
       </div>
-    </>
+    </>,
+    document.body,
   )
 }
 
