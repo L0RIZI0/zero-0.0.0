@@ -290,12 +290,21 @@ internal sealed class MenuHost
   var wv = window.chrome && window.chrome.webview;
   if (!wv) return;
   var showCbs = new Set();
+  var lastPayload = null; // buffer: a push can arrive BEFORE React subscribes (see onShow)
   // Host → page: the host calls window.__zeroMenuShow(payload) via ExecuteScript.
   window.__zeroMenuShow = function (payload) {
+    lastPayload = payload;
     showCbs.forEach(function (cb) { try { cb(payload); } catch (e) {} });
   };
   window.zeroMenu = {
-    onShow: function (cb) { showCbs.add(cb); return function () { showCbs.delete(cb); }; },
+    // Replay the buffered payload immediately on subscribe. NavigationCompleted (which triggers the
+    // host push) can fire before the React overlay mounts and registers here; without this replay the
+    // very first open — and every open before the page is warm — would be silently dropped.
+    onShow: function (cb) {
+      showCbs.add(cb);
+      if (lastPayload !== null) { try { cb(lastPayload); } catch (e) {} }
+      return function () { showCbs.delete(cb); };
+    },
     action: function (id) { wv.postMessage({ kind: 'action', id: id }); },
     dismiss: function () { wv.postMessage({ kind: 'dismiss' }); },
     resize: function (size) {
