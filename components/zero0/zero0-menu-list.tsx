@@ -150,9 +150,9 @@ function MenuRow({
           style={{ backgroundColor: item.swatch }}
         />
       )}
-      <span>{item.label}</span>
+      <span className="whitespace-nowrap">{item.label}</span>
       {item.hint && (
-        <span aria-hidden className="ml-auto pl-4 text-muted-foreground/50">
+        <span aria-hidden className="ml-auto shrink-0 whitespace-nowrap pl-4 text-muted-foreground/50">
           {item.hint}
         </span>
       )}
