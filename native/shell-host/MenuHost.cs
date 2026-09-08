@@ -121,10 +121,16 @@ internal sealed class MenuHost
             catch (Exception ex) { _log($"menu create failed: {ex.Message}"); return; }
         }
 
-        // Raise to the very top (content layers were added after us on their own mounts) and show. The
-        // card size isn't known until the overlay measures + calls Resize; until then keep it invisible to
-        // avoid a flash at a stale size. If already ready, push items immediately; else PushPending on load.
+        // Start each open from the measuring state: full-client viewport, parked off-screen, not yet
+        // logically visible. This also guarantees room to measure a larger menu than the previous one.
+        _visible = false;
+        ParkForMeasuring();
+
+        // Raise to the very top (content layers add their layers frontmost on mount) so the overlay paints
+        // above the shell AND any content view. The card size isn't known until the overlay measures +
+        // reports Resize; until then it's parked off-screen so there's no flash at a stale position.
         _comp.RaiseToTop(_layer!);
+        _log($"menu open: ready={_ready} anchor={_anchorPx.X},{_anchorPx.Y}");
         if (_ready) PushItems();
     }
 
@@ -137,19 +143,15 @@ internal sealed class MenuHost
         _controller.RootVisualTarget = _layer;
         _controller.RasterizationScale = _scale;
         _controller.ShouldDetectMonitorScaleChanges = false;
-        _controller.IsVisible = false;
 
-        // Give the overlay a real viewport to lay out + measure in WHILE HIDDEN. A composition controller
-        // with no Bounds has a 0×0 viewport, so the card's getBoundingClientRect would be 0 and the resize
-        // report would keep the menu invisible forever. Full client is fine — it stays IsVisible=false
-        // until SizeAndPlace reveals it shrunk to the fitted card size.
-        try
-        {
-            var c = _comp.Size;
-            _layer.Size = new Vector2(c.Width, c.Height);
-            _controller.Bounds = new Rectangle(0, 0, c.Width, c.Height);
-        }
-        catch { }
+        // The overlay MEASURES itself (getBoundingClientRect in a layout effect) and reports its card size
+        // so we can shrink the layer to fit. A composition controller with IsVisible=false SUSPENDS layout
+        // + rendering, so that measure reads 0×0 and the menu would NEVER reveal — this is the "nothing
+        // shows over web content" bug on v0.2.366. So we keep the controller VISIBLE at all times and
+        // "hide" it by PARKING the layer off-screen with a full-client viewport: the page always lays out,
+        // but is not seen until SizeAndPlace moves it on-screen shrunk to the fitted card.
+        ParkForMeasuring();
+        _log("menu controller created");
 
         var s = _core.Settings;
         s.AreDefaultContextMenusEnabled = false; // no Edge menu inside our own menu
@@ -173,8 +175,9 @@ internal sealed class MenuHost
         _core.WebMessageReceived += OnOverlayMessage;
         _core.NavigationCompleted += (_, e) =>
         {
-            if (!e.IsSuccess) { _log($"menu overlay nav failed: {e.WebErrorStatus}"); return; }
+            if (!e.IsSuccess) { _log($"menu overlay nav FAILED: {e.WebErrorStatus}"); return; }
             _ready = true;
+            _log("menu overlay ready");
             if (_pendingItems is not null) PushItems();
         };
 
@@ -191,7 +194,8 @@ internal sealed class MenuHost
         var payload = JsonSerializer.Serialize(new { items = _pendingItems, x = 0, y = 0 });
         // The bridge exposes __zeroMenuShow(payload); call it with the JSON parsed in-page.
         var js = $"window.__zeroMenuShow && window.__zeroMenuShow({payload});";
-        try { _ = _core.ExecuteScriptAsync(js); } catch (Exception ex) { _log($"menu push failed: {ex.Message}"); }
+        try { _ = _core.ExecuteScriptAsync(js); _log("menu items pushed"); }
+        catch (Exception ex) { _log($"menu push failed: {ex.Message}"); }
     }
 
     private void OnOverlayMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -205,6 +209,7 @@ internal sealed class MenuHost
         {
             case "resize":
                 // Size the layer to the measured card and clamp it on-screen from the click anchor.
+                _log($"menu resize msg: {m.width}x{m.height} css");
                 SizeAndPlace((int)Math.Round(m.width * _scale), (int)Math.Round(m.height * _scale));
                 break;
             case "action":
@@ -228,7 +233,7 @@ internal sealed class MenuHost
     // Position the card near the anchor, clamped to the window client area, then reveal.
     private void SizeAndPlace(int wPx, int hPx)
     {
-        if (wPx <= 0 || hPx <= 0) return;
+        if (wPx <= 0 || hPx <= 0) { _log($"menu sizeAndPlace SKIPPED (zero size): {wPx}x{hPx}"); return; }
         // WinForms ClientSize is already PHYSICAL pixels for a PerMonitorV2 app (as is _anchorPx and the
         // layer rect), so compare directly — no scale conversion. The shell sizes its own controller with
         // ClientSize.Width/Height in exactly these units (see MainForm WM_SIZE), so this matches.
@@ -239,6 +244,7 @@ internal sealed class MenuHost
         int y = Math.Min(Math.Max(0, _anchorPx.Y), maxY);
         _boundsPx = new Rectangle(x, y, wPx, hPx);
         _visible = true;
+        _log($"menu shown at {x},{y} size {wPx}x{hPx}");
         ApplyBounds();
     }
 
@@ -247,25 +253,50 @@ internal sealed class MenuHost
         if (_controller is null || _layer is null) return;
         try
         {
-            _controller.IsVisible = _visible && _boundsPx.Width > 0 && _boundsPx.Height > 0;
-            if (_controller.IsVisible)
+            if (_visible && _boundsPx.Width > 0 && _boundsPx.Height > 0)
             {
                 // Same composition coordinate model as ResourceView: position via the layer Offset, size
                 // via the layer Size + controller Bounds at (0,0,w,h). Mouse input is forwarded in this
                 // local space (MainForm subtracts BoundsPx.Location).
+                _controller.IsVisible = true;
                 _layer.Offset = new Vector3(_boundsPx.X, _boundsPx.Y, 0f);
                 _layer.Size = new Vector2(_boundsPx.Width, _boundsPx.Height);
                 _controller.Bounds = new Rectangle(0, 0, _boundsPx.Width, _boundsPx.Height);
             }
+            else
+            {
+                // Not logically visible → keep the controller alive + laid out, parked off-screen so the
+                // next open can measure. (Never IsVisible=false: that suspends layout — see CreateAsync.)
+                ParkForMeasuring();
+            }
         }
         catch (Exception ex) { _log($"menu applyBounds failed: {ex.Message}"); }
+    }
+
+    // "Hidden" state that still LAYS OUT: full-client viewport, controller VISIBLE, layer parked off the
+    // right edge of the window so nothing is seen. Keeping the controller visible is what lets the overlay
+    // measure itself (a hidden WebView2 suspends layout/rendering). SizeAndPlace later shrinks + moves it
+    // on-screen to reveal.
+    private void ParkForMeasuring()
+    {
+        if (_controller is null || _layer is null) return;
+        var c = _comp.Size;
+        try
+        {
+            _controller.IsVisible = true;
+            _layer.Size = new Vector2(c.Width, c.Height);
+            _layer.Offset = new Vector3(c.Width + 100f, 0f, 0f); // off the right edge = invisible
+            _controller.Bounds = new Rectangle(0, 0, c.Width, c.Height);
+        }
+        catch (Exception ex) { _log($"menu park failed: {ex.Message}"); }
     }
 
     public void Hide()
     {
         _visible = false;
         _pendingItems = null;
-        if (_controller is not null) { try { _controller.IsVisible = false; } catch { } }
+        // Don't set IsVisible=false (that suspends layout and breaks the next measure) — park off-screen.
+        ParkForMeasuring();
         // Fire (and consume) the per-open dismiss handler — for a content menu this completes the
         // WebView2 deferral with no selection so Chromium doesn't hang waiting. Reset both handlers so
         // the next open starts from the default (renderer relay).
