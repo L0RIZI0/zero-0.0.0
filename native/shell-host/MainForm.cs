@@ -34,6 +34,10 @@ sealed class MainForm : Form
     //                         drag keeps going to it even if the cursor leaves its rect
     private ResourceHost? _resources;
 
+    // M3: branded context-menu overlay, composited above content (see MenuHost). Created lazily on the
+    // first menu.open. When visible it takes mouse-input priority over content in ForwardMouse.
+    private MenuHost? _menu;
+
     // M4: silent background auto-updater (Velopack). Null on unpackaged dev runs.
     private UpdateService? _updates;
     private ResourceView? _prevMouseTarget;

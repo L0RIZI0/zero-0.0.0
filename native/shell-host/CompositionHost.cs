@@ -61,6 +61,15 @@ internal sealed class CompositionHost : IDisposable
         try { _root.Children.Remove(layer); } catch { }
     }
 
+    // Re-raise an existing layer to the FRONT (M3 menu overlay). Content views add their layers frontmost
+    // on mount, so a long-lived overlay layer created earlier would fall behind them; calling this on each
+    // open puts the menu above both the shell and any content view. Best-effort: remove then re-insert at
+    // top (InsertAtTop on an already-child visual is not guaranteed to reorder).
+    public void RaiseToTop(ContainerVisual layer)
+    {
+        try { _root.Children.Remove(layer); _root.Children.InsertAtTop(layer); } catch { }
+    }
+
     public Size Size => _size;
 
     public void Resize(Size size) => _size = size;
