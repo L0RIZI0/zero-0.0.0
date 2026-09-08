@@ -40,6 +40,9 @@ internal sealed class ResourceHost
     private readonly Action<string, object?> _emit; // (channel, payload) → renderer event
     private readonly Action<string> _log;
     private readonly Action<ResourceView> _onCursorChanged; // content view's cursor changed (hover a link…)
+    // A browsed page raised a context menu: (flattened MenuItem[] JSON, pick(id), dismiss()). The host
+    // shows the branded overlay and drives the WebView2 deferral through pick/dismiss (see MainForm).
+    private readonly Action<string, Action<string>, Action> _onContentMenu;
     private readonly Dictionary<string, ResourceView> _views = new();
 
     private Task<CoreWebView2Environment>? _envTask;
@@ -47,7 +50,8 @@ internal sealed class ResourceHost
     private CoreWebView2PreferredColorScheme _scheme = CoreWebView2PreferredColorScheme.Auto;
 
     public ResourceHost(CompositionHost comp, IntPtr hwnd, double scale, Action<string, object?> emit,
-        Action<string> log, Action<ResourceView> onCursorChanged)
+        Action<string> log, Action<ResourceView> onCursorChanged,
+        Action<string, Action<string>, Action> onContentMenu)
     {
         _comp = comp;
         _hwnd = hwnd;
@@ -55,6 +59,7 @@ internal sealed class ResourceHost
         _emit = emit;
         _log = log;
         _onCursorChanged = onCursorChanged;
+        _onContentMenu = onContentMenu;
     }
 
     public IReadOnlyCollection<ResourceView> Views => _views.Values;
@@ -119,7 +124,7 @@ internal sealed class ResourceHost
             return;
         }
 
-        var view = new ResourceView(id, _comp, _hwnd, _scale, _emit, _log, _onCursorChanged);
+        var view = new ResourceView(id, _comp, _hwnd, _scale, _emit, _log, _onCursorChanged, _onContentMenu);
         _views[id] = view;
         view.SetBounds(boundsPx, visible);     // desired-state; applied when the controller is ready
         view.SetColorScheme(_scheme);
@@ -217,6 +222,7 @@ internal sealed class ResourceView : IDisposable
     private readonly Action<string, object?> _emit;
     private readonly Action<string> _log;
     private readonly Action<ResourceView> _onCursorChanged;
+    private readonly Action<string, Action<string>, Action> _onContentMenu;
 
     private ContainerVisual? _layer;
     private CoreWebView2CompositionController? _controller;
@@ -241,10 +247,11 @@ internal sealed class ResourceView : IDisposable
     private static readonly SemaphoreSlim _createGate = new(1, 1);
 
     public ResourceView(string id, CompositionHost comp, IntPtr hwnd, double scale,
-        Action<string, object?> emit, Action<string> log, Action<ResourceView> onCursorChanged)
+        Action<string, object?> emit, Action<string> log, Action<ResourceView> onCursorChanged,
+        Action<string, Action<string>, Action> onContentMenu)
     {
         _id = id; _comp = comp; _hwnd = hwnd; _scale = scale; _emit = emit; _log = log;
-        _onCursorChanged = onCursorChanged;
+        _onCursorChanged = onCursorChanged; _onContentMenu = onContentMenu;
     }
 
     public Rectangle BoundsPx => _boundsPx;
@@ -327,7 +334,10 @@ internal sealed class ResourceView : IDisposable
 
         _core = _controller.CoreWebView2;
         var s = _core.Settings;
-        s.AreDefaultContextMenusEnabled = true; // browsed sites keep Edge's Back/Forward/Reload/Copy menu
+        // Keep Edge's DEFAULT menu ENABLED so its command set is fully populated, but intercept
+        // ContextMenuRequested (see WireEvents) to draw those same commands in Zero's style. Disabling it
+        // would also empty MenuItems, so we must leave it on and rely on e.Handled=true to suppress the UI.
+        s.AreDefaultContextMenusEnabled = true;
         s.IsStatusBarEnabled = false;
         s.AreDevToolsEnabled = true;
 
@@ -353,6 +363,46 @@ internal sealed class ResourceView : IDisposable
 
     private void WireEvents(CoreWebView2 core)
     {
+        // CONTENT CONTEXT MENU (M3b): mirror the browsed page's native menu in Zero's style, correctly
+        // anchored on the cursor. Take a deferral, flatten CoreWebView2's MenuItems into our serialisable
+        // MenuItem[] JSON, and hand it to the host, which shows the branded overlay. The chosen leaf's
+        // CommandId is set on SelectedCommandId and the deferral completed; a dismissal completes with the
+        // default (no selection). e.Handled=true suppresses Chromium's own (mispositioned) menu.
+        core.ContextMenuRequested += (_, e) =>
+        {
+            CoreWebView2Deferral deferral;
+            try { deferral = e.GetDeferral(); }
+            catch { return; } // no deferral ⇒ let the default menu show rather than hang
+            e.Handled = true;
+
+            // Map CommandId → the target menu item so a pick can set SelectedCommandId. We only carry leaf
+            // commands and submenus across; separators become dividers.
+            var byId = new Dictionary<string, CoreWebView2ContextMenuItem>();
+            string json = FlattenContextMenu(e.MenuItems, byId);
+
+            bool done = false;
+            void Complete(int? commandId)
+            {
+                if (done) return; // pick and dismiss can race; first one wins
+                done = true;
+                try { e.SelectedCommandId = commandId ?? -1; } catch { }
+                try { deferral.Complete(); } catch { }
+            }
+
+            Action<string> pick = actionId =>
+            {
+                // actionId is "cmd:<CommandId>" for a real command; anything else (shouldn't happen) closes
+                // with no selection.
+                int? cmd = null;
+                if (actionId.StartsWith("cmd:") && int.TryParse(actionId.AsSpan(4), out var c)) cmd = c;
+                Complete(cmd);
+            };
+            Action dismiss = () => Complete(null);
+
+            try { _onContentMenu(json, pick, dismiss); }
+            catch (Exception ex) { _log($"content menu show failed id={_id}: {ex.Message}"); Complete(null); }
+        };
+
         // status drives the renderer reveal: ok=true once the top document loads, ok=false on failure.
         core.NavigationCompleted += (_, e) =>
         {
@@ -390,6 +440,69 @@ internal sealed class ResourceView : IDisposable
             _ = OpenPopupAsync(e, deferral);
         };
     }
+
+    // Flatten CoreWebView2's context-menu tree into the serialisable MenuItem[] JSON the shared
+    // Zero0MenuList renders. Separators → {type:"divider"}; submenus → {type:"submenu", items:[…]};
+    // everything else → {type:"item", id:"cmd:<CommandId>", label, hint:<ShortcutKeyDescription>}. The
+    // byId map lets the pick handler resolve an action id back to a CommandId. Disabled items are carried
+    // with disabled:true (shown faded, non-selectable). Checkbox/radio state maps to `checkmark`.
+    private static string FlattenContextMenu(
+        System.Collections.Generic.IList<CoreWebView2ContextMenuItem> items,
+        Dictionary<string, CoreWebView2ContextMenuItem> byId)
+    {
+        var buf = new System.IO.MemoryStream();
+        var writer = new System.Text.Json.Utf8JsonWriter(buf);
+        WriteArray(writer, items, byId);
+        writer.Flush();
+        return System.Text.Encoding.UTF8.GetString(buf.ToArray());
+    }
+
+    private static void WriteArray(
+        System.Text.Json.Utf8JsonWriter w,
+        System.Collections.Generic.IList<CoreWebView2ContextMenuItem> items,
+        Dictionary<string, CoreWebView2ContextMenuItem> byId)
+    {
+        w.WriteStartArray();
+        foreach (var it in items)
+        {
+            // Separator.
+            if (it.Kind == CoreWebView2ContextMenuItemKind.Separator)
+            {
+                w.WriteStartObject(); w.WriteString("type", "divider"); w.WriteEndObject();
+                continue;
+            }
+
+            // Submenu: recurse. (WebView2 exposes nested items on .Children.)
+            if (it.Kind == CoreWebView2ContextMenuItemKind.Submenu && it.Children is { Count: > 0 })
+            {
+                w.WriteStartObject();
+                w.WriteString("type", "submenu");
+                w.WriteString("label", CleanLabel(it.Label));
+                w.WritePropertyName("items");
+                WriteArray(w, it.Children, byId);
+                w.WriteEndObject();
+                continue;
+            }
+
+            // Ordinary command (or checkbox/radio).
+            string id = "cmd:" + it.CommandId;
+            byId[id] = it;
+            w.WriteStartObject();
+            w.WriteString("type", "item");
+            w.WriteString("id", id);
+            w.WriteString("label", CleanLabel(it.Label));
+            if (!string.IsNullOrEmpty(it.ShortcutKeyDescription)) w.WriteString("hint", it.ShortcutKeyDescription);
+            if (!it.IsEnabled) w.WriteBoolean("disabled", true);
+            if (it.Kind == CoreWebView2ContextMenuItemKind.CheckBox
+                || it.Kind == CoreWebView2ContextMenuItemKind.Radio)
+                w.WriteBoolean("checkmark", it.IsChecked);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+    }
+
+    // Chromium labels use '&' as the keyboard-accelerator marker (e.g. "&Copy"); strip a single '&'.
+    private static string CleanLabel(string? label) => (label ?? "").Replace("&", "");
 
     private async Task OpenPopupAsync(CoreWebView2NewWindowRequestedEventArgs e, CoreWebView2Deferral deferral)
     {

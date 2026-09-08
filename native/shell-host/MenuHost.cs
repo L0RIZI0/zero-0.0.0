@@ -56,6 +56,11 @@ internal sealed class MenuHost
     private bool _visible;
     private bool _ready;              // overlay document loaded + bridge listening
     private JsonElement? _pendingItems; // items to show once the overlay signals ready
+    // Per-open pick + dismiss handlers. The default (renderer relay) is used by window.zero.menu.open;
+    // the CONTENT context-menu path swaps in handlers that drive the WebView2 deferral instead. Reset to
+    // the default whenever a menu closes so a stale content deferral can't leak into the next open.
+    private Action<string>? _pick;    // called with the chosen action id (null ⇒ renderer relay)
+    private Action? _onDismiss;       // called when the menu is dismissed without a pick
 
     public MenuHost(CompositionHost comp, IntPtr hwnd, CoreWebView2Environment env, string virtualHost,
         string outDir, double scale, Action<string> log, Action<string> onSelected)
@@ -88,10 +93,27 @@ internal sealed class MenuHost
 
     // Open the menu at CSS (x,y) with a serialisable MenuItem[] (as the raw JsonElement from the message).
     // Creates the controller on first use, then shows + relays items to the overlay.
-    public async Task OpenAsync(double xCss, double yCss, JsonElement items)
+    public Task OpenAsync(double xCss, double yCss, JsonElement items)
     {
-        _anchorPx = new Point((int)Math.Round(xCss * _scale), (int)Math.Round(yCss * _scale));
+        // window.zero.menu.open path: CSS coords, picks relay to the renderer (default handlers).
+        var anchor = new Point((int)Math.Round(xCss * _scale), (int)Math.Round(yCss * _scale));
+        return ShowAsync(anchor, items, pick: null, onDismiss: null);
+    }
+
+    // Content context-menu path: anchor is already in SHELL PHYSICAL px (the last right-click point), and
+    // the pick/dismiss drive the WebView2 deferral rather than the renderer. Items are the pre-flattened
+    // JSON built from CoreWebView2ContextMenuItem (see ResourceView).
+    public Task OpenNativeAsync(Point anchorPx, JsonElement items, Action<string> pick, Action onDismiss)
+    {
+        return ShowAsync(anchorPx, items, pick, onDismiss);
+    }
+
+    private async Task ShowAsync(Point anchorPx, JsonElement items, Action<string>? pick, Action? onDismiss)
+    {
+        _anchorPx = anchorPx;
         _pendingItems = items.Clone(); // detach from the transient message buffer
+        _pick = pick;
+        _onDismiss = onDismiss;
 
         if (_controller is null)
         {
@@ -186,7 +208,16 @@ internal sealed class MenuHost
                 SizeAndPlace((int)Math.Round(m.width * _scale), (int)Math.Round(m.height * _scale));
                 break;
             case "action":
-                if (!string.IsNullOrEmpty(m.id)) { try { _onSelected(m.id!); } catch { } }
+                if (!string.IsNullOrEmpty(m.id))
+                {
+                    // A pick both fulfils the open AND closes the menu. Snapshot the per-open handler,
+                    // clear state via Hide (which won't re-fire dismiss because we null _onDismiss first),
+                    // then invoke. Default handler = renderer relay.
+                    var pick = _pick;
+                    _onDismiss = null; // picking is not a dismissal
+                    Hide();
+                    try { (pick ?? _onSelected)(m.id!); } catch { }
+                }
                 break;
             case "dismiss":
                 Hide();
@@ -235,6 +266,13 @@ internal sealed class MenuHost
         _visible = false;
         _pendingItems = null;
         if (_controller is not null) { try { _controller.IsVisible = false; } catch { } }
+        // Fire (and consume) the per-open dismiss handler — for a content menu this completes the
+        // WebView2 deferral with no selection so Chromium doesn't hang waiting. Reset both handlers so
+        // the next open starts from the default (renderer relay).
+        var d = _onDismiss;
+        _onDismiss = null;
+        _pick = null;
+        if (d is not null) { try { d(); } catch { } }
     }
 
     public void Dispose()

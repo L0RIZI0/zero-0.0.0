@@ -69,6 +69,10 @@ export type MenuItem =
       disabled?: boolean
       /** A `#rrggbb` swatch drawn as a leading dot (the color picker rows). */
       swatch?: string
+      /** Trailing, right-aligned muted text — a keyboard shortcut / accelerator hint
+          (e.g. "Ctrl+R"). Used when mirroring the web content's native context menu
+          (WebView2 ShortcutKeyDescription) in Zero's style. */
+      hint?: string
     }
   | { type: "submenu"; label: string; items: MenuItem[]; glyphKind?: EntityKind }
   // The unified color entry: the renderer draws the shared swatch ramp + a "hex or name…" input
