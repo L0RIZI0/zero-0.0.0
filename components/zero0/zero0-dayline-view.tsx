@@ -25,6 +25,8 @@ import { Zero0DaylineCanvas, readDaylineTheme } from "./zero0-dayline-canvas"
 import { buildDaylineInput } from "@/lib/dayline-adapter/build-input"
 import { useActivityRevision } from "@/lib/zero/activity-log"
 import type { DaylineTheme } from "@/packages/dayline-contract"
+import { useShowMenu } from "./zero0-menu-context"
+import type { MenuItem as MenuModelItem } from "@/lib/zero/menu-model"
 
 // The occurrence dispatch token is opaque at this seam (contract `OccRef = unknown`) — Zero only ever
 // echoes it back to its own handlers. Typed `any` here so the agenda's `DaylineOccRef`-typed handlers

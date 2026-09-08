@@ -10,6 +10,7 @@ import { Zero0Agenda, Zero0Activity } from "./zero0-activity"
 import type { DaylineOccRef } from "./zero0-dayline"
 import { recordAccess, wasAwayOnLoad, getLastKnownAlive, markAliveNow } from "@/lib/zero/activity-log"
 import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
+import { MenuProvider } from "./zero0-menu-context"
 import { Zero0ColorField } from "./zero0-color-picker"
 import { buildEntityMenuItems, applyEntityMenuAction, type MenuItem } from "@/lib/zero/menu-model"
 import { Zero0PlanDialog, type PlanResult } from "./zero0-plan-dialog"
@@ -2470,6 +2471,7 @@ export function Zero0Canvas() {
     ) : null
 
   return (
+    <MenuProvider value={showMenu}>
     <main
       className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
@@ -2959,5 +2961,6 @@ export function Zero0Canvas() {
         />
       )}
     </main>
+    </MenuProvider>
   )
 }
