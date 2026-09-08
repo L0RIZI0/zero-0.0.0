@@ -19,6 +19,10 @@ import type { MenuItem } from "@/lib/zero/menu-model"
 
 export function Zero0MenuOverlay() {
   const [items, setItems] = useState<MenuItem[] | null>(null)
+  // Bumped on every show. The overlay document stays alive between opens (unlike the in-DOM menu, which
+  // unmounts on close), so Zero0MenuList's internal checkbox state would otherwise leak across opens. We
+  // key the list with this so each open starts from the fresh payload's checkmark values.
+  const [showId, setShowId] = useState(0)
   const cardRef = useRef<HTMLDivElement | null>(null)
 
   // The native layer composites over web content, so the document must be transparent — the root
@@ -41,7 +45,10 @@ export function Zero0MenuOverlay() {
   useEffect(() => {
     const bridge = typeof window !== "undefined" ? window.zeroMenu : undefined
     if (bridge) {
-      const off = bridge.onShow((payload) => setItems(payload.items))
+      const off = bridge.onShow((payload) => {
+        setItems(payload.items)
+        setShowId((n) => n + 1)
+      })
       return () => off?.()
     }
     if (typeof window !== "undefined" && window.location.search.includes("menutest")) {
@@ -96,13 +103,16 @@ export function Zero0MenuOverlay() {
         bridge?.dismiss()
       }}
     >
+      {/* Match the in-DOM menu (zero0-dom-menu) exactly so the native overlay is visually identical:
+          same border/background, no rounding, no shadow (a shadow would be clipped by the layer bounds). */}
       <div
         ref={cardRef}
         role="presentation"
-        className="inline-block rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+        className="inline-block border border-border bg-background shadow-none"
         style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
       >
         <Zero0MenuList
+          key={showId}
           items={items}
           onSelect={(id, keepOpen) => {
             bridge?.action(id)
