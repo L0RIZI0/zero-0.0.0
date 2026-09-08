@@ -19,12 +19,21 @@ export function Zero0MenuList({
   onSelect,
 }: {
   items: MenuItem[]
-  onSelect: (id: string) => void
+  // `keepOpen` echoes the selected item's flag so the container can decide whether to dismiss.
+  onSelect: (id: string, keepOpen?: boolean) => void
 }) {
+  // Local checkmark overrides for `keepOpen` toggle rows: flipping one updates the ✓ instantly,
+  // without waiting for the owner to re-push items (the DOM path) or an IPC round-trip (the native
+  // overlay). Keyed by item id; unset ids fall back to the item's own `checkmark`.
+  const [checks, setChecks] = useState<Record<string, boolean>>({})
+  // Seed the flip from the row's CURRENT effective state (passed in), not a bare `false` — otherwise the
+  // first click on an initially-checked row computes `!false = true` and nothing visibly changes.
+  const toggleCheck = (id: string, current: boolean) => setChecks((m) => ({ ...m, [id]: !current }))
+
   return (
     <div role="menu" className="min-w-40 py-1 text-[11px] tabular-nums">
       {items.map((item, i) => (
-        <MenuRow key={rowKey(item, i)} item={item} onSelect={onSelect} />
+        <MenuRow key={rowKey(item, i)} item={item} onSelect={onSelect} checks={checks} onToggleCheck={toggleCheck} />
       ))}
     </div>
   )
@@ -34,14 +43,31 @@ function rowKey(item: MenuItem, i: number): string {
   if (item.type === "item") return item.id
   if (item.type === "submenu") return `sub:${item.label}`
   if (item.type === "colorInput") return "colorinput"
+  if (item.type === "header") return `hdr:${item.label}:${i}`
   return `div:${i}`
 }
 
-function MenuRow({ item, onSelect }: { item: Indentable; onSelect: (id: string) => void }) {
+function MenuRow({
+  item,
+  onSelect,
+  checks,
+  onToggleCheck,
+}: {
+  item: Indentable
+  onSelect: (id: string, keepOpen?: boolean) => void
+  checks: Record<string, boolean>
+  onToggleCheck: (id: string, current: boolean) => void
+}) {
   const [open, setOpen] = useState(false)
 
   if (item.type === "divider") {
     return <div className="my-1 border-t border-border/60" />
+  }
+
+  if (item.type === "header") {
+    return (
+      <p className="px-3 pb-0.5 pt-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">{item.label}</p>
+    )
   }
 
   if (item.type === "colorInput") {
@@ -68,7 +94,13 @@ function MenuRow({ item, onSelect }: { item: Indentable; onSelect: (id: string) 
         {open && (
           <div className="border-t border-border/60">
             {item.items.map((child, i) => (
-              <MenuRow key={rowKey(child, i)} item={indent(child)} onSelect={onSelect} />
+              <MenuRow
+                key={rowKey(child, i)}
+                item={indent(child)}
+                onSelect={onSelect}
+                checks={checks}
+                onToggleCheck={onToggleCheck}
+              />
             ))}
           </div>
         )}
@@ -76,21 +108,40 @@ function MenuRow({ item, onSelect }: { item: Indentable; onSelect: (id: string) 
     )
   }
 
+  // A checkbox-style row shows a LEADING ✓ gutter; its effective state is the local override
+  // (from a prior click this session) or the item's own `checkmark`. Any menu that HAS a checkbox
+  // row reserves the gutter on all its rows so labels align.
+  const hasCheckmark = item.checkmark !== undefined
+  const checked = item.id in checks ? checks[item.id] : !!item.checkmark
+
+  const handleClick = () => {
+    if (item.disabled) return
+    if (item.keepOpen) onToggleCheck(item.id, checked)
+    onSelect(item.id, item.keepOpen)
+  }
+
   return (
     <button
       type="button"
-      role="menuitem"
+      role={hasCheckmark ? "menuitemcheckbox" : "menuitem"}
+      aria-checked={hasCheckmark ? checked : undefined}
       aria-current={item.current ? "true" : undefined}
       disabled={item.disabled}
-      onClick={() => !item.disabled && onSelect(item.id)}
+      onClick={handleClick}
       className={
         "flex w-full items-center gap-2 px-3 py-1 text-left " +
         (item.disabled
           ? "cursor-default text-muted-foreground/40"
-          : "hover:bg-muted hover:text-foreground " + (item.current ? "text-foreground" : "text-muted-foreground")) +
+          : "hover:bg-muted hover:text-foreground " +
+            (item.current || checked ? "text-foreground" : "text-muted-foreground")) +
         (item._indent ? " pl-5" : "")
       }
     >
+      {hasCheckmark && (
+        <span aria-hidden className="inline-flex h-3 w-3 shrink-0 items-center justify-center">
+          {checked ? "\u2713" : ""}
+        </span>
+      )}
       {item.glyphKind && <Zero0Glyph kind={item.glyphKind} className="h-3 w-3" />}
       {item.swatch && (
         <span

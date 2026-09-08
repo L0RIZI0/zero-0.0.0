@@ -63,9 +63,11 @@ export function Zero0DomMenu({ menu, onClose }: { menu: Zero0DomMenuState; onClo
     >
       <Zero0MenuList
         items={menu.items}
-        onSelect={(id) => {
+        onSelect={(id, keepOpen) => {
           menu.onSelect(id)
-          onClose()
+          // `keepOpen` rows (checkbox toggles like Sun/Moon) leave the menu up so several can be
+          // flipped in one pass; the shared list already updated the row's ✓ locally.
+          if (!keepOpen) onClose()
         }}
       />
     </div>

@@ -111,10 +111,12 @@
       onActivity: (cb) => on("resource.activity", cb),
     },
 
-    // ── M3 anchor: native menu over web content. Stub until content + overlay land. ──
+    // ── M3: native context-menu overlay over web content (see MenuHost.cs). open() ships the click
+    //    point + serialisable MenuItem[] to the host, which shows the shared Zero0MenuList on the
+    //    frontmost composition layer; the picked action id comes back on the menu.selected event. ──
     menu: {
-      open: () => {},
-      onSelected: () => () => {},
+      open: (payload) => send("menu.open", payload),
+      onSelected: (cb) => on("menu.selected", (id) => cb(id)),
     },
 
     // ── M4: Velopack auto-update (see UpdateService.cs). The shell downloads + stages silently in the

@@ -10,6 +10,7 @@ import { Zero0Agenda, Zero0Activity } from "./zero0-activity"
 import type { DaylineOccRef } from "./zero0-dayline"
 import { recordAccess, wasAwayOnLoad, getLastKnownAlive, markAliveNow } from "@/lib/zero/activity-log"
 import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
+import { MenuProvider } from "./zero0-menu-context"
 import { Zero0ColorField } from "./zero0-color-picker"
 import { buildEntityMenuItems, applyEntityMenuAction, type MenuItem } from "@/lib/zero/menu-model"
 import { Zero0PlanDialog, type PlanResult } from "./zero0-plan-dialog"
@@ -523,7 +524,7 @@ export function Zero0Canvas() {
   const showActivity = useZero0Flag("activity")
   const showEntityHeader = useZero0Flag("entityHeader")
   const showZeroHeader = useZero0Flag("zeroHeader")
-  // §4 PINS — a strict show/hide toggle (v0.2.228): this flag alone controls the band's
+  // §4 PINS �� a strict show/hide toggle (v0.2.228): this flag alone controls the band's
   // visibility, like every other § frame. Ongoing chips populate it live while it's open.
   const showFrequent = useZero0Flag("frequent")
   // §5 CREATE FIELD — the main create input. Hidden by default now that entities are created via
@@ -2280,12 +2281,14 @@ export function Zero0Canvas() {
 
   // Route the NATIVE overlay menu's chosen action back to whatever opened it. One
   // persistent listener; `nativeSelectRef` points at the current menu's onSelect.
+  // We do NOT clear the ref after firing: a `keepOpen` checkbox row (e.g. Sun/Moon)
+  // stays open and can emit several actions from one open. The ref is overwritten on
+  // the next `showMenu`, and the overlay only emits actions while it's open, so a
+  // lingering ref is harmless.
   useEffect(() => {
     if (!window.zero?.menu?.onSelected) return
     return window.zero.menu.onSelected((actionId) => {
-      const fn = nativeSelectRef.current
-      nativeSelectRef.current = null
-      fn?.(actionId)
+      nativeSelectRef.current?.(actionId)
     })
   }, [])
 
@@ -2470,6 +2473,7 @@ export function Zero0Canvas() {
     ) : null
 
   return (
+    <MenuProvider value={showMenu}>
     <main
       className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
@@ -2959,5 +2963,6 @@ export function Zero0Canvas() {
         />
       )}
     </main>
+    </MenuProvider>
   )
 }

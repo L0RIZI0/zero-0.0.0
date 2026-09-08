@@ -34,6 +34,11 @@ sealed class MainForm : Form
     //                         drag keeps going to it even if the cursor leaves its rect
     private ResourceHost? _resources;
 
+    // M3: branded context-menu overlay, composited above content (see MenuHost). Created lazily on the
+    // first menu.open. When visible it takes mouse-input priority over content in ForwardMouse.
+    private MenuHost? _menu;
+    private bool _menuHovered; // pointer currently over the menu layer (for one-shot Leave on exit)
+
     // M4: silent background auto-updater (Velopack). Null on unpackaged dev runs.
     private UpdateService? _updates;
     private ResourceView? _prevMouseTarget;
@@ -140,6 +145,14 @@ sealed class MainForm : Form
             _resources = new ResourceHost(_comp, Handle, DeviceDpi / 96.0, PushEvent, LogLine, OnContentCursorChanged);
             _resources.WarmUp(); // overlap the cold content-environment create with shell startup
 
+            // M3 branded context-menu overlay. Reuses the SHELL env (it's Zero's own UI, same zero.local
+            // origin → shares localStorage, so it picks up the app's persisted light/dark theme) and is
+            // served the shared Zero0MenuList at /menu/ (trailingSlash export → menu/index.html). Its
+            // controller is created lazily on the first open. A picked action id is relayed to the renderer
+            // over the same event channel the shim listens on (menu.selected).
+            _menu = new MenuHost(_comp, Handle, env, $"https://{VirtualHost}/menu/", DeviceDpi / 96.0,
+                LogLine, id => PushEvent("menu.selected", id));
+
             core.Navigate($"https://{VirtualHost}/index.html");
 
             // Give the freshly-created controller keyboard focus (the form already has OS focus on load).
@@ -190,6 +203,9 @@ sealed class MainForm : Form
                 case "resource.discard-prewarm": ResourceIdArg(msg.args, id => _resources?.Close(id)); break;
                 case "resource.release-focus": GiveWebFocus(); break; // keyboard back to Zero's own UI
                 case "resource.set-theme": ResourceSetTheme(msg.args); break;
+
+                // ── M3 native menu overlay (send) ──────────────────────────
+                case "menu.open": await MenuOpen(msg.args); break;
 
                 // ── M4 auto-update (send) ───────────────────────────────────
                 case "updates.start-download": _updates?.StartDownload(); break;
@@ -291,7 +307,7 @@ sealed class MainForm : Form
         catch { /* best-effort */ }
     }
 
-    // ── custom frame (borderless look, native resize/animations) via WndProc ──
+    // ── custom frame (borderless look, native resize/animations) via WndProc ��─
     protected override void WndProc(ref Message m)
     {
         // WM_NCCALCSIZE (wParam=TRUE) decides how much of the window is client vs. non-client frame.
@@ -400,6 +416,7 @@ sealed class MainForm : Form
                     catch { }
                 }
                 _resources?.SetScale(DeviceDpi / 96.0); // rescale content controllers to the new DPI
+                _menu?.SetScale(DeviceDpi / 96.0);      // and the menu overlay controller
                 break;
 
             case NativeMethods.WM_SETFOCUS:
@@ -468,6 +485,29 @@ sealed class MainForm : Form
                 break;
             default:
                 return;
+        }
+
+        // ── M3 menu overlay: frontmost layer, takes pointer priority while visible ──
+        // A context menu is modal-ish: pointer events INSIDE it route to its own controller; a press
+        // OUTSIDE dismisses it and then falls through to whatever is beneath. This sits ahead of the
+        // resource capture machine so a menu opened over a Resource still receives its own clicks.
+        if (_menu is not null && _menu.IsHitVisible && !_mouseCaptured)
+        {
+            var mb = _menu.BoundsPx;
+            bool inside = mb.Contains(pt);
+            if (inside)
+            {
+                if (_prevMouseTarget is not null) { SendLeaveTo(_prevMouseTarget); _prevMouseTarget = null; }
+                if (isDown) { try { _menu.Controller?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic); } catch { } }
+                var mLocal = new Point(pt.X - mb.X, pt.Y - mb.Y);
+                try { _menu.Controller?.SendMouseInput(kind, MouseKeys(m.WParam), mouseData, mLocal); } catch { }
+                if (!_menuHovered) _menuHovered = true;
+                return;
+            }
+            // Moved off the menu → clear its hover once.
+            if (_menuHovered) { try { _menu.Controller?.SendMouseInput(CoreWebView2MouseEventKind.Leave, 0, 0, Point.Empty); } catch { } _menuHovered = false; }
+            // A press outside dismisses; the same event then continues to the shell/content below.
+            if (isDown) _menu.Hide();
         }
 
         // Pick the target layer: an active button-drag stays on its captured target; otherwise hit-test.
@@ -546,6 +586,8 @@ sealed class MainForm : Form
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         // Tear down content views, then the shell controller, then the composition target, in that order.
+        try { _menu?.Dispose(); } catch { }
+        _menu = null;
         try { _resources?.DisposeAll(); } catch { }
         _resources = null;
         try { _shell?.Close(); } catch { }
@@ -599,6 +641,18 @@ sealed class MainForm : Form
         if (string.IsNullOrEmpty(id)) return;
         var (px, visible) = RectArg(a);
         _resources.SetBounds(id, px, visible);
+    }
+
+    // M3: open the native menu overlay at CSS (x,y) with a serialisable MenuItem[]. The renderer only
+    // calls this when a web Resource is up (else it draws the ordinary in-DOM popup), so the overlay is
+    // the frontmost composition layer and paints over the content that used to clip the DOM menu.
+    private async Task MenuOpen(JsonElement a)
+    {
+        if (_menu is null || a.ValueKind != JsonValueKind.Object) return;
+        if (!a.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array) return;
+        double x = GetNum(a, "x");
+        double y = GetNum(a, "y");
+        await _menu.OpenAsync(x, y, items);
     }
 
     private void ResourceSetTheme(JsonElement a)

@@ -46,6 +46,9 @@ import type { Entity, EntityKind } from "@/lib/zero/types"
 // the DOM menu both expand it locally; only the final leaf action id crosses IPC).
 export type MenuItem =
   | { type: "divider" }
+  // A non-interactive SECTION HEADER (e.g. the dayline band menu's "SHOW" / "SKY" captions).
+  // Purely presentational; carries no id and is skipped by keyboard/pointer selection.
+  | { type: "header"; label: string }
   | {
       type: "item"
       id: string
@@ -53,6 +56,14 @@ export type MenuItem =
       danger?: boolean
       glyphKind?: EntityKind
       current?: boolean
+      /** A LEADING checkmark (✓) drawn in a reserved gutter — for checkbox-style toggle rows
+          (e.g. rail/sky visibility). Distinct from `current` (a trailing • for radio-style
+          "this is the selected option" rows). */
+      checkmark?: boolean
+      /** Keep the menu OPEN after selecting this row — for checkbox toggles the user may flip
+          several of in one pass (e.g. Sun/Moon). The shared list flips the row's own checkmark
+          locally so it reflects instantly without a re-open / IPC round-trip. */
+      keepOpen?: boolean
       /** Rendered faded + non-interactive; selecting it is a no-op. Used for
           present-but-not-yet-wired affordances (e.g. the occurrence "Edit" placeholder). */
       disabled?: boolean

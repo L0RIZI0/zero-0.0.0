@@ -27,8 +27,8 @@ importers:
         specifier: ^2.5.0
         version: 2.5.0
       '@zero/dayline':
-        specifier: github:L0RIZI0/zero-dayline#v0.7.22
-        version: https://codeload.github.com/L0RIZI0/zero-dayline/tar.gz/10aadeabef0812110bbb334010a2a25fb8a2580c
+        specifier: github:L0RIZI0/zero-dayline#v0.7.29
+        version: https://codeload.github.com/L0RIZI0/zero-dayline/tar.gz/6a7966f111e7b8dee8b577d328296258eeb1c0c1
       ai:
         specifier: ^7.0.6
         version: 7.0.6(zod@4.4.3)
@@ -1095,9 +1095,9 @@ packages:
   '@workflow/serde@4.1.0':
     resolution: {integrity: sha512-pav4F2BoirECWR7Nf1TKt+2eETcBj7jj4cBefQ8VXQCA6NPkaKeLfj/zMgi+3zYV5ZIBT4GuUiphsj0/b9hPQQ==}
 
-  '@zero/dayline@https://codeload.github.com/L0RIZI0/zero-dayline/tar.gz/10aadeabef0812110bbb334010a2a25fb8a2580c':
-    resolution: {gitHosted: true, integrity: sha512-QZY1SjFUANbgQTswsrmiSb731snfTs2uTJeF4/N9eF86jK+73+51JKKGJgCXpn1vazJEh53LND8IDkPdhiSgpw==, tarball: https://codeload.github.com/L0RIZI0/zero-dayline/tar.gz/10aadeabef0812110bbb334010a2a25fb8a2580c}
-    version: 0.7.22
+  '@zero/dayline@https://codeload.github.com/L0RIZI0/zero-dayline/tar.gz/6a7966f111e7b8dee8b577d328296258eeb1c0c1':
+    resolution: {gitHosted: true, integrity: sha512-1ytTr7KHwhr26COy+6P0ezKmWcmim2xCeolEX0vZTg36/AFiShm5lmo7gQaTOI4EVfPY43/0wXGbXsaZS4hxMg==, tarball: https://codeload.github.com/L0RIZI0/zero-dayline/tar.gz/6a7966f111e7b8dee8b577d328296258eeb1c0c1}
+    version: 0.7.29
 
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
@@ -3779,7 +3779,7 @@ snapshots:
 
   '@workflow/serde@4.1.0': {}
 
-  '@zero/dayline@https://codeload.github.com/L0RIZI0/zero-dayline/tar.gz/10aadeabef0812110bbb334010a2a25fb8a2580c': {}
+  '@zero/dayline@https://codeload.github.com/L0RIZI0/zero-dayline/tar.gz/6a7966f111e7b8dee8b577d328296258eeb1c0c1': {}
 
   accepts@2.0.0:
     dependencies:
