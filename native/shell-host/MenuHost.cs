@@ -61,6 +61,7 @@ internal sealed class MenuHost
     // the default whenever a menu closes so a stale content deferral can't leak into the next open.
     private Action<string>? _pick;    // called with the chosen action id (null ⇒ renderer relay)
     private Action? _onDismiss;       // called when the menu is dismissed without a pick
+    private int _openGen;             // bumped on every open AND on hide; stale measure-polls bail on mismatch
 
     public MenuHost(CompositionHost comp, IntPtr hwnd, CoreWebView2Environment env, string virtualHost,
         string outDir, double scale, Action<string> log, Action<string> onSelected)
@@ -128,6 +129,7 @@ internal sealed class MenuHost
         // Start each open from the measuring state: full-client viewport, parked off-screen, not yet
         // logically visible. This also guarantees room to measure a larger menu than the previous one.
         _visible = false;
+        _openGen++; // invalidate any in-flight measure poll from a previous open
         ParkForMeasuring();
 
         // Raise to the very top (content layers add their layers frontmost on mount) so the overlay paints
@@ -199,7 +201,62 @@ internal sealed class MenuHost
         // The bridge exposes __zeroMenuShow(payload); call it with the JSON parsed in-page.
         var js = $"window.__zeroMenuShow && window.__zeroMenuShow({payload});";
         try { _ = _core.ExecuteScriptAsync(js); _log("menu items pushed"); }
-        catch (Exception ex) { _log($"menu push failed: {ex.Message}"); }
+        catch (Exception ex) { _log($"menu push failed: {ex.Message}"); return; }
+
+        // HOST-DRIVEN measure. We no longer rely on the overlay calling bridge.resize() and that
+        // postMessage reaching WebMessageReceived (that round-trip silently never completed on v0.2.368 —
+        // "items pushed" logged but no "resize msg" ever arrived). Instead the host PULLS the rendered
+        // card's size straight out of the DOM via ExecuteScriptAsync and places the layer itself.
+        _ = MeasureAndPlaceAsync();
+    }
+
+    // Poll the overlay DOM for the rendered card's size, then size + reveal the layer. Self-contained: no
+    // dependence on the overlay posting back. Also the definitive diagnostic — if the card never appears,
+    // React isn't mounting in the export (page/bundle problem), and the log says exactly that.
+    private async Task MeasureAndPlaceAsync()
+    {
+        if (_core is null) return;
+        int gen = _openGen; // snapshot: a newer open or a hide bumps _openGen and cancels this poll
+        // Returns an object literal; ExecuteScriptAsync JSON-encodes the result value for us.
+        const string expr =
+            "(function(){var c=document.querySelector('[data-zero-menu-card]');" +
+            "if(!c)return{ok:false,bridge:!!window.zeroMenu,blen:(document.body?document.body.innerHTML.length:-1)};" +
+            "var r=c.getBoundingClientRect();return{ok:true,w:r.width,h:r.height};})()";
+
+        for (int i = 0; i < 40; i++) // ~1s max (40 × 25ms) — ample for React to mount + render the card
+        {
+            if (gen != _openGen) return; // superseded
+            string json;
+            try { json = await _core.ExecuteScriptAsync(expr); }
+            catch (Exception ex) { _log($"menu measure exec failed: {ex.Message}"); return; }
+            if (gen != _openGen) return;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                if (root.ValueKind == JsonValueKind.Object
+                    && root.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True)
+                {
+                    double w = root.GetProperty("w").GetDouble();
+                    double h = root.GetProperty("h").GetDouble();
+                    if (w > 0 && h > 0)
+                    {
+                        _log($"menu measured (pull): {w}x{h} css after {i} tries");
+                        SizeAndPlace((int)Math.Round(w * _scale), (int)Math.Round(h * _scale));
+                        return;
+                    }
+                }
+                else if (i == 0 || i == 20)
+                {
+                    // Card not there yet — log the page state so a persistent failure is diagnosable.
+                    _log($"menu measure try {i}: no card ({json})");
+                }
+            }
+            catch { }
+            await Task.Delay(25);
+        }
+        _log("menu measure GAVE UP after 40 tries — card never rendered (React not mounting in overlay?)");
     }
 
     private void OnOverlayMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -299,6 +356,7 @@ internal sealed class MenuHost
     {
         _visible = false;
         _pendingItems = null;
+        _openGen++; // cancel any in-flight measure poll
         // Don't set IsVisible=false (that suspends layout and breaks the next measure) — park off-screen.
         ParkForMeasuring();
         // Fire (and consume) the per-open dismiss handler — for a content menu this completes the

@@ -123,6 +123,7 @@ export function Zero0MenuOverlay() {
       <div
         ref={cardRef}
         role="presentation"
+        data-zero-menu-card
         className="inline-block border border-border bg-background shadow-none"
         style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
       >
