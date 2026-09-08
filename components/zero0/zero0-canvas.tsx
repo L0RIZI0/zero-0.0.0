@@ -2496,15 +2496,12 @@ export function Zero0Canvas() {
             <button
               type="button"
               // Clicking the TIME scrolls the dayline back so "now" is in view — handy after panning into
-              // the past/future. The AGENDA dayline is the @zero/dayline package engine, whose handle
-              // exposes NO recenter method; its only external lever is the global "go to now" keyboard
-              // shortcut (n / Home) it binds on window — so dispatch a synthetic `n` keydown. Also fire
-              // the legacy "zero:dayline-recenter" event for the DOM daylines (access tracker / minimized).
-              // `no-drag` opts the button out of the frameless-window drag region, or the click is swallowed.
-              onClick={() => {
-                window.dispatchEvent(new KeyboardEvent("keydown", { key: "n" }))
-                window.dispatchEvent(new Event("zero:dayline-recenter"))
-              }}
+              // the past/future. Fires a Zero-owned window event that both the package mount host (which
+              // calls the engine handle's goToNow) and the legacy DOM daylines listen for. NOT a synthetic
+              // `n` keydown: the engine binds `n`/Home globally, so faking it would also fire whenever the
+              // user legitimately types `n`. `no-drag` opts the button out of the frameless-window drag
+              // region, or the click is swallowed by the drag surface.
+              onClick={() => window.dispatchEvent(new Event("zero:dayline-recenter"))}
               title="Scroll the dayline back to now"
               className="cursor-default rounded-sm focus-visible:outline-none"
               style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
@@ -2616,14 +2613,10 @@ export function Zero0Canvas() {
             {siblingTabs}
             <div className="flex items-center gap-2">
               {breadcrumb}
-              {/* BUILD VERSION — right-aligned on the breadcrumb row; still the top row shown in
-                  web-resource view, so it stays in view there. */}
-              <span className="ml-auto shrink-0 text-muted-foreground/70" title="Build version">
-                {displayVersion}
-              </span>
-              {/* CLOSE for a WEB RESOURCE — after the version. §0's × is hidden while the web surface
-                  is up, so this is the explicit-close gesture for a resource. */}
-              {context?.webUrl && <Zero0CloseButton className="shrink-0" onClick={() => closeContext(context)} />}
+              {/* CLOSE for a WEB RESOURCE — §0's × is hidden while the web surface is up, so this is the
+                  explicit-close gesture for a resource. `ml-auto` right-aligns it now that the build
+                  version has moved to the footer (v0.2.363). */}
+              {context?.webUrl && <Zero0CloseButton className="ml-auto shrink-0" onClick={() => closeContext(context)} />}
             </div>
           </>
         )}
@@ -2643,15 +2636,10 @@ export function Zero0Canvas() {
             <dt className="uppercase tracking-widest">context</dt>
             <dd className="flex min-w-0 items-center gap-2">
               {breadcrumb}
-              {/* BUILD VERSION — right-aligned on the CONTEXT row (v0.2.292), sharing the breadcrumb's
-                  line rather than sitting on a standalone band above. Still the top row shown in
-                  web-resource view. */}
-              <span className="ml-auto shrink-0 text-muted-foreground/70" title="Build version">
-                {displayVersion}
-              </span>
-              {/* CLOSE for a WEB RESOURCE — after the version, still far-right on the breadcrumb row.
-                  §0's × is replaced by the web surface, so this is the resource's close gesture. */}
-              {context?.webUrl && <Zero0CloseButton className="shrink-0" onClick={() => closeContext(context)} />}
+              {/* CLOSE for a WEB RESOURCE — §0's × is replaced by the web surface, so this is the
+                  resource's close gesture. `ml-auto` keeps it far-right now that the build version has
+                  moved to the footer (v0.2.363). */}
+              {context?.webUrl && <Zero0CloseButton className="ml-auto shrink-0" onClick={() => closeContext(context)} />}
             </dd>
             {!context?.webUrl && (
               <>
@@ -2937,11 +2925,15 @@ export function Zero0Canvas() {
         >
           sugars
         </a>
-        {/* Bottom-right cluster: the Surface-only "restart to update" affordance, then the battery
-            indicator to its RIGHT (v0.2.327). Both render null when not applicable (no staged update /
-            no battery / API unavailable), so the footer adds no chrome by default. */}
+        {/* Bottom-right cluster: the Surface-only "restart to update" affordance, then the build VERSION
+            (moved here from the §1 header, v0.2.363), then the battery indicator to its RIGHT (v0.2.327).
+            The update + battery render null when not applicable (no staged update / no battery / API
+            unavailable / not fullscreen), so the footer adds no chrome by default. */}
         <span className="ml-auto flex items-center gap-3">
           <Zero0UpdateIndicator />
+          <span className="tabular-nums text-muted-foreground/70" title="Build version">
+            {displayVersion}
+          </span>
           <Zero0BatteryIndicator />
         </span>
       </footer>

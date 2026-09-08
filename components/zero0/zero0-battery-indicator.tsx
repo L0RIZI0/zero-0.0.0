@@ -64,6 +64,22 @@ function looksBatteryless(s: BatterySnapshot): boolean {
 
 export function Zero0BatteryIndicator() {
   const [state, setState] = useState<BatterySnapshot | null>(null)
+  // Show ONLY while the app is OS-fullscreen (v0.2.363, Loris ask): fullscreen hides the Windows taskbar
+  // and its system battery readout, so Zero surfaces its own; windowed/maximized keeps the taskbar's, so
+  // we stay out of the way. Driven by the desktop bridge — on the web (no `window.zero.win`) it stays
+  // false, so the footer battery never shows in a browser.
+  const [fullscreen, setFullscreen] = useState(false)
+
+  useEffect(() => {
+    const win = typeof window !== "undefined" ? window.zero?.win : undefined
+    if (!win?.onFullScreenChange) return
+    let cancelled = false
+    win.isFullScreen?.()
+      .then((fs) => { if (!cancelled) setFullscreen(!!fs) })
+      .catch(() => {})
+    const off = win.onFullScreenChange((fs) => setFullscreen(!!fs))
+    return () => { cancelled = true; off?.() }
+  }, [])
 
   useEffect(() => {
     const getBattery = getBatteryApi()
@@ -100,7 +116,7 @@ export function Zero0BatteryIndicator() {
     }
   }, [])
 
-  if (!state || looksBatteryless(state)) return null
+  if (!fullscreen || !state || looksBatteryless(state)) return null
 
   const pct = Math.round(state.level * 100)
   const title = state.charging

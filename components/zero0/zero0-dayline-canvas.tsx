@@ -112,12 +112,21 @@ export function Zero0DaylineCanvas({ data, theme, callbacks, options, className 
     window.addEventListener("pointercancel", releasePointer)
     canvas.addEventListener("wheel", onWheel, { passive: true })
 
+    // ── RECENTER-TO-NOW BRIDGE ──
+    // Zero chrome (the clock-header time) dispatches this window event to scroll the dayline back to
+    // "now". Route it to the engine handle's imperative goToNow (present from a recent @zero/dayline;
+    // older engines lack it → harmless no-op). A window event avoids threading a ref up through
+    // agenda → dayline-view → this host.
+    const onRecenter = () => handleRef.current?.goToNow?.()
+    window.addEventListener("zero:dayline-recenter", onRecenter)
+
     return () => {
       ro.disconnect()
       canvas.removeEventListener("pointerdown", onPointerDown)
       window.removeEventListener("pointerup", releasePointer)
       window.removeEventListener("pointercancel", releasePointer)
       canvas.removeEventListener("wheel", onWheel)
+      window.removeEventListener("zero:dayline-recenter", onRecenter)
       // Balance the counter if we tore down mid-gesture, so depth never sticks above 0.
       if (pointerHeld) endDaylineInteraction()
       if (wheelTimer !== null) {
