@@ -208,24 +208,48 @@ export function Zero0DaylineView({
   // No bleed while minimized (the band is a thin strip with no room, and there's nothing to reveal).
   const bleed = minimized ? 0 : skyBleedPx
 
-  // Band right-click menu (rail visibility). The axis toggle is gone — the engine owns its axis.
+  // Band right-click menu (rail + sky visibility). The axis toggle is gone — the engine owns its axis.
+  // Prefer the canvas's shared `showMenu` (DOM popup normally, NATIVE overlay when a web Resource is up,
+  // so it never crops behind the WebView2 content layer). `menu`/`closeMenu` are only the fallback for
+  // when this view is rendered outside the MenuProvider (no `showMenu`).
+  const showMenu = useShowMenu()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const closeMenu = () => setMenu(null)
 
-  const callbacks = useMemo(
-    () => ({
-      onActivate: (id: string) => onOpen(id),
-      onOccurrenceMenu: (id: string, ref: OccToken, x: number, y: number) =>
-        onOccurrenceMenu?.(id, ref, synthEvent(x, y)),
-      onSessionMenu: (id: string, sid: number, x: number, y: number) =>
-        onSessionMenu?.(id, sid, synthEvent(x, y)),
-      onOccurrenceRetime,
-      onSessionRetime,
-      onEmptyClick,
-      onBandMenu: (x: number, y: number) => setMenu({ x, y }),
-    }),
-    [onOpen, onOccurrenceMenu, onSessionMenu, onOccurrenceRetime, onSessionRetime, onEmptyClick],
-  )
+  const openBandMenu = (x: number, y: number) => {
+    const items: MenuModelItem[] = [
+      { type: "header", label: "Show" },
+      // Rail rows CLOSE on toggle (single flip is the common case); sky rows keepOpen so both curves
+      // can be flipped in one pass. All four show a leading ✓ reflecting current state.
+      { type: "item", id: "rail:session", label: "Session rail", checkmark: !!showSessionRail },
+      { type: "item", id: "rail:access", label: "Access rail", checkmark: !!showAccessRail },
+      { type: "divider" },
+      { type: "header", label: "Sky" },
+      { type: "item", id: "sky:sun", label: "Sun", checkmark: sky.sun, keepOpen: true },
+      { type: "item", id: "sky:moon", label: "Moon", checkmark: sky.moon, keepOpen: true },
+    ]
+    const onSelect = (id: string) => {
+      if (id === "rail:session") onToggleRail?.("session", !showSessionRail)
+      else if (id === "rail:access") onToggleRail?.("access", !showAccessRail)
+      else if (id === "sky:sun") toggleSky("sun")
+      else if (id === "sky:moon") toggleSky("moon")
+    }
+    if (showMenu) showMenu(items, x, y, onSelect)
+    else setMenu({ x, y }) // no provider → local DOM fallback below
+  }
+
+  // The engine reads `cbRef.current` at call time (see zero0-dayline-canvas), so rebuilding this each
+  // render is harmless and keeps `openBandMenu` closing over fresh rail/sky state.
+  const callbacks = {
+    onActivate: (id: string) => onOpen(id),
+    onOccurrenceMenu: (id: string, ref: OccToken, x: number, y: number) =>
+      onOccurrenceMenu?.(id, ref, synthEvent(x, y)),
+    onSessionMenu: (id: string, sid: number, x: number, y: number) => onSessionMenu?.(id, sid, synthEvent(x, y)),
+    onOccurrenceRetime,
+    onSessionRetime,
+    onEmptyClick,
+    onBandMenu: (x: number, y: number) => openBandMenu(x, y),
+  }
 
   return (
     <div

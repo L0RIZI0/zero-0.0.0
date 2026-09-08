@@ -26,7 +26,9 @@ export function Zero0MenuList({
   // without waiting for the owner to re-push items (the DOM path) or an IPC round-trip (the native
   // overlay). Keyed by item id; unset ids fall back to the item's own `checkmark`.
   const [checks, setChecks] = useState<Record<string, boolean>>({})
-  const toggleCheck = (id: string) => setChecks((m) => ({ ...m, [id]: !(id in m ? m[id] : false) }))
+  // Seed the flip from the row's CURRENT effective state (passed in), not a bare `false` — otherwise the
+  // first click on an initially-checked row computes `!false = true` and nothing visibly changes.
+  const toggleCheck = (id: string, current: boolean) => setChecks((m) => ({ ...m, [id]: !current }))
 
   return (
     <div role="menu" className="min-w-40 py-1 text-[11px] tabular-nums">
@@ -54,7 +56,7 @@ function MenuRow({
   item: Indentable
   onSelect: (id: string, keepOpen?: boolean) => void
   checks: Record<string, boolean>
-  onToggleCheck: (id: string) => void
+  onToggleCheck: (id: string, current: boolean) => void
 }) {
   const [open, setOpen] = useState(false)
 
@@ -114,7 +116,7 @@ function MenuRow({
 
   const handleClick = () => {
     if (item.disabled) return
-    if (item.keepOpen) onToggleCheck(item.id)
+    if (item.keepOpen) onToggleCheck(item.id, checked)
     onSelect(item.id, item.keepOpen)
   }
 
