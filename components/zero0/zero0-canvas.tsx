@@ -2469,7 +2469,7 @@ export function Zero0Canvas() {
       className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
-      {/* ── GLUED TOP: live clock ───────��──��───────�����─���������������───���───────────────────���─
+      {/* ── GLUED TOP: live clock ───────��──��───────�����─�����������������───���───────────────────���─
           Permanent top chrome (mirrors the footer's glued-bottom role): the live full
           date + time WITH seconds, top-left. Always present �� for any open entity, and
           regardless of which frames are toggled below. `min-h` reserves its row so the
@@ -2478,30 +2478,16 @@ export function Zero0Canvas() {
           click-and-drag it to MOVE the frameless window (Windows/Linux; a no-op on the web
           and under macOS's native title bar). The window controls opt back out via `no-drag`.
           `justify-between` keeps the live clock left and the min/max/close cluster top-right. */}
-      {/* EXPERIMENT (Loris): the clock band is an ABSOLUTE OVERLAY (removed from flow) pinned to the
-          very top, so the AGENDA dayline below slides up to y=0 and its sun/moon curves bleed UP behind
-          the clock text. A short top-anchored scrim (bg → transparent) keeps the clock legible over the
-          curves. `pointer-events-none` on the band lets dayline hit-testing pass through the empty
-          areas; the clock text + window controls opt back in with `pointer-events-auto`. */}
       <div
-        className="pointer-events-none absolute inset-x-0 top-0 z-20 flex min-h-[41px] items-center justify-between gap-3 px-4 py-3 text-[10px] font-medium uppercase tracking-wider leading-none tabular-nums text-foreground"
+        className="flex min-h-[41px] shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3 text-[10px] font-medium uppercase tracking-wider leading-none tabular-nums text-foreground"
         // `WebkitAppRegion` drives the Electron shell's frameless drag; `data-zero-drag` is the
         // additive marker the WebView2 shell-host reads (WebView2 doesn't honor -webkit-app-region).
+        // The WHOLE in-flow band is the drag surface — that's what makes the native window movable.
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
         data-zero-drag="drag"
       >
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[64px]"
-          style={{
-            background:
-              "linear-gradient(to bottom, var(--background) 0%, color-mix(in oklch, var(--background) 55%, transparent) 55%, transparent 100%)",
-          }}
-        />
-        <span className="pointer-events-auto">{topClock}</span>
-        <span className="pointer-events-auto">
-          <Zero0WindowControls />
-        </span>
+        <span>{topClock}</span>
+        <Zero0WindowControls />
       </div>
 
       {/* ── §4 PINS BAND (topmost, just under the clock) ─────────────────────────
