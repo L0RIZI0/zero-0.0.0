@@ -40,7 +40,7 @@ internal sealed class MenuHost
     private readonly CoreWebView2Environment _env;   // reuse the SHELL env: the overlay is Zero's own UI
     private readonly string _virtualHost;            // "zero.local" — mapped per-controller (see CreateAsync)
     private readonly string _outDir;                 // static-export folder backing the virtual host
-    private readonly string _menuUrl;                // https://zero.local/menu/
+    private readonly string _menuUrl;                // https://zero.local/menu/index.html (explicit file)
     private readonly Action<string> _log;
     private readonly Action<string> _onSelected;     // relay a picked action id to the renderer
 
@@ -66,7 +66,11 @@ internal sealed class MenuHost
         string outDir, double scale, Action<string> log, Action<string> onSelected)
     {
         _comp = comp; _hwnd = hwnd; _env = env; _virtualHost = virtualHost; _outDir = outDir;
-        _menuUrl = $"https://{virtualHost}/menu/"; _scale = scale;
+        // Navigate to the EXPLICIT index.html, not the directory "/menu/". WebView2's virtual-host mapping
+        // serves FILES only — it does NOT resolve a directory request to index.html — so "/menu/" returns
+        // ConnectionAborted and the overlay never loads (the v0.2.367 "nav FAILED" bug). The shell core
+        // works precisely because it navigates to "https://zero.local/index.html", so mirror that here.
+        _menuUrl = $"https://{virtualHost}/menu/index.html"; _scale = scale;
         _log = log; _onSelected = onSelected;
     }
 
