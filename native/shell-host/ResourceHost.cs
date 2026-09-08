@@ -340,6 +340,10 @@ internal sealed class ResourceView : IDisposable
         s.AreDefaultContextMenusEnabled = true;
         s.IsStatusBarEnabled = false;
         s.AreDevToolsEnabled = true;
+        // Content KEEPS zoom control ON (opposite of the shell chrome, which disables it): a trackpad
+        // pinch / Ctrl+wheel over a browsed page should still zoom IN. But it's floored at 100% below —
+        // see the ZoomFactorChanged clamp — so there's no zoom-OUT, matching the pre-migration behavior.
+        s.IsZoomControlEnabled = true;
 
         // Apply Zero's light/dark choice to scrollbars + default menu (CDP media emulation is M2.3).
         try { _core.Profile.PreferredColorScheme = _scheme; } catch { }
@@ -350,6 +354,15 @@ internal sealed class ResourceView : IDisposable
         {
             e.Handled = true;
             try { _controller?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic); } catch { }
+        };
+
+        // ZOOM FLOOR at 100%. WebView2's Ctrl+wheel page zoom happily scales below 1.0 (zoom OUT), which
+        // Zero never wants on browsed content. Snap any sub-100% factor back to 1.0. Setting ZoomFactor
+        // re-raises this event, but 1.0 is not < 1.0 so it settles in one bounce (no feedback loop).
+        _controller.ZoomFactorChanged += (_, _) =>
+        {
+            try { if (_controller is not null && _controller.ZoomFactor < 1.0) _controller.ZoomFactor = 1.0; }
+            catch { }
         };
 
         // Web content sets its own cursor (pointer over links, I-beam over text, etc.). In visual hosting
