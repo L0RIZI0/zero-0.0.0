@@ -584,7 +584,12 @@ export function Zero0Canvas() {
     if (!mounted) return { time: "", date: "" }
     const d = new Date(nowSec)
     const loc = formatLocale()
-    const date = d.toLocaleDateString(loc, { weekday: "long", month: "long", day: "numeric", year: "numeric" })
+    // Weekday and the month/day/year are formatted SEPARATELY and joined with a space, so there's no
+    // comma after the weekday ("Monday September 8, 2026") while the locale's comma between the day and
+    // year is preserved.
+    const weekday = d.toLocaleDateString(loc, { weekday: "long" })
+    const rest = d.toLocaleDateString(loc, { month: "long", day: "numeric", year: "numeric" })
+    const date = `${weekday} ${rest}`
     const time = d.toLocaleTimeString(loc, { hour: "numeric", minute: "2-digit", second: "2-digit" })
     return { time, date }
   }, [mounted, nowSec])
@@ -2490,13 +2495,18 @@ export function Zero0Canvas() {
           {topClock.time ? (
             <button
               type="button"
-              // Clicking the TIME scrolls the dayline back so "now" is in view (mirrors double-clicking
-              // the band) — handy after panning into the past/future. Dispatched as a window event so no
-              // callback has to thread down through agenda → dayline-view → dayline. `no-drag` opts the
-              // button out of the frameless-window drag region in both shells, or the click is swallowed.
-              onClick={() => window.dispatchEvent(new Event("zero:dayline-recenter"))}
+              // Clicking the TIME scrolls the dayline back so "now" is in view — handy after panning into
+              // the past/future. The AGENDA dayline is the @zero/dayline package engine, whose handle
+              // exposes NO recenter method; its only external lever is the global "go to now" keyboard
+              // shortcut (n / Home) it binds on window — so dispatch a synthetic `n` keydown. Also fire
+              // the legacy "zero:dayline-recenter" event for the DOM daylines (access tracker / minimized).
+              // `no-drag` opts the button out of the frameless-window drag region, or the click is swallowed.
+              onClick={() => {
+                window.dispatchEvent(new KeyboardEvent("keydown", { key: "n" }))
+                window.dispatchEvent(new Event("zero:dayline-recenter"))
+              }}
               title="Scroll the dayline back to now"
-              className="cursor-pointer rounded-sm underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+              className="cursor-default rounded-sm focus-visible:outline-none"
               style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
               data-zero-drag="no-drag"
             >
