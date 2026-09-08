@@ -2929,10 +2929,15 @@ export function Zero0Canvas() {
             (moved here from the §1 header, v0.2.363), then the battery indicator to its RIGHT (v0.2.327).
             The update + battery render null when not applicable (no staged update / no battery / API
             unavailable / not fullscreen), so the footer adds no chrome by default. */}
-        <span className="ml-auto flex items-center gap-3">
-          <Zero0UpdateIndicator />
-          <span className="tabular-nums text-muted-foreground/70" title="Build version">
-            {displayVersion}
+        <span className="ml-auto flex items-center">
+          {/* update + version stay statically gapped; the battery owns its OWN animated left spacing
+              (see Zero0BatteryIndicator) so that when it slides in it PUSHES the version left, and when
+              it slides out it collapses to zero width leaving no residual gap. */}
+          <span className="flex items-center gap-3">
+            <Zero0UpdateIndicator />
+            <span className="tabular-nums text-muted-foreground/70" title="Build version">
+              {displayVersion}
+            </span>
           </span>
           <Zero0BatteryIndicator />
         </span>
