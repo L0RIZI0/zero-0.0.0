@@ -1894,6 +1894,16 @@ export function Zero0Dayline({
     setViewStart(dayWindow(Date.now(), viewSpanRef.current)[0])
   }, [])
 
+  // Let external chrome (the clock header's clickable time) request a recenter-to-now via a global
+  // window event — same effect as double-clicking the band, but decoupled so no callback has to thread
+  // through agenda → dayline-view → dayline. Every mounted dayline listens, which harmlessly keeps them
+  // in sync (recenter on a hidden/minimized dayline just updates state).
+  useEffect(() => {
+    const onRecenter = () => recenter()
+    window.addEventListener("zero:dayline-recenter", onRecenter)
+    return () => window.removeEventListener("zero:dayline-recenter", onRecenter)
+  }, [recenter])
+
   // One eased frame of the zoom glide (v0.2.305). Moves the LIVE span a fraction of the way toward
   // `zoomTargetSpanRef` in LOG space (so the ease feels uniform to the eye — perceived zoom is
   // multiplicative), with a time-based alpha = 1−exp(−dt/τ) that decelerates into rest like the pan

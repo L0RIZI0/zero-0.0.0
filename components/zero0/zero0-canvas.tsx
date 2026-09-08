@@ -578,15 +578,15 @@ export function Zero0Canvas() {
   // permanent chrome, mirroring the footer's glued-bottom role). Ticks once per second
   // via its own store; gated on `mounted` so the SSR value (0) never mismatches.
   const nowSec = useNowSeconds()
+  // TIME first, then day/date — the live clock is the glanceable part; the calendar context follows it.
+  // Split into parts so ONLY the time can be made a clickable "scroll dayline back to now" affordance.
   const topClock = useMemo(() => {
-    if (!mounted) return ""
+    if (!mounted) return { time: "", date: "" }
     const d = new Date(nowSec)
     const loc = formatLocale()
     const date = d.toLocaleDateString(loc, { weekday: "long", month: "long", day: "numeric", year: "numeric" })
     const time = d.toLocaleTimeString(loc, { hour: "numeric", minute: "2-digit", second: "2-digit" })
-    // TIME first, then day/date — the live clock is the glanceable part; the calendar
-    // context follows it.
-    return `${time} · ${date}`
+    return { time, date }
   }, [mounted, nowSec])
 
   // SCALAR SWEEP (v0.2.271) — the clock trigger for the current-or-next scalar mirror. Each second,
@@ -2469,7 +2469,7 @@ export function Zero0Canvas() {
       className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
-      {/* ── GLUED TOP: live clock ───────��──��───────�����─�����������������───���───────────────────���─
+      {/* ── GLUED TOP: live clock ───────��──��───────�����─�������������������───���───────────────────���─
           Permanent top chrome (mirrors the footer's glued-bottom role): the live full
           date + time WITH seconds, top-left. Always present �� for any open entity, and
           regardless of which frames are toggled below. `min-h` reserves its row so the
@@ -2486,7 +2486,25 @@ export function Zero0Canvas() {
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
         data-zero-drag="drag"
       >
-        <span>{topClock}</span>
+        <span>
+          {topClock.time ? (
+            <button
+              type="button"
+              // Clicking the TIME scrolls the dayline back so "now" is in view (mirrors double-clicking
+              // the band) — handy after panning into the past/future. Dispatched as a window event so no
+              // callback has to thread down through agenda → dayline-view → dayline. `no-drag` opts the
+              // button out of the frameless-window drag region in both shells, or the click is swallowed.
+              onClick={() => window.dispatchEvent(new Event("zero:dayline-recenter"))}
+              title="Scroll the dayline back to now"
+              className="cursor-pointer rounded-sm underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+              style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+              data-zero-drag="no-drag"
+            >
+              {topClock.time}
+            </button>
+          ) : null}
+          {topClock.date ? ` · ${topClock.date}` : null}
+        </span>
         <Zero0WindowControls />
       </div>
 
