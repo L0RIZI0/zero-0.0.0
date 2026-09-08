@@ -225,6 +225,11 @@ export interface DaylineOptions {
   nowRestFraction?: number
   /** device pixel ratio hint; the engine can also read it itself. */
   dpr?: number
+  /** Extra canvas pixels BELOW the band (@zero/dayline v0.7.7). Layout — axis, ticks, marks, now-marker,
+   *  hit-testing — uses `height - skyBleedPx`; only the sun/moon strokes draw into the bleed, which stays
+   *  transparent. Mount-time only (needs an alpha canvas). Zero sizes the <canvas> to bandHeight +
+   *  skyBleedPx and lets the transparent bleed overlay whatever sits directly below. Default 0. */
+  skyBleedPx?: number
 }
 
 export interface MountDaylineArgs {

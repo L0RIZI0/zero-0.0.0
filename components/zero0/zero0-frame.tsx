@@ -19,12 +19,18 @@ export function Zero0Frame({
   open,
   children,
   className,
+  allowOverflow = false,
 }: {
   /** Whether the frame is shown (height 1fr + opacity 1) or collapsed (0fr + opacity 0). */
   open: boolean
   children: ReactNode
   /** Extra classes for the outer grid wrapper (rarely needed). */
   className?: string
+  /** When true AND the frame is open, the inner clip is `overflow-visible` so intentional bottom
+   *  overflow (e.g. the AGENDA dayline's sky-bleed curves) can spill past the frame onto whatever sits
+   *  below. While collapsed/animating it stays `overflow-hidden` so the grid-rows 0fr↔1fr collapse still
+   *  clips cleanly. Default false — every other frame keeps the original hard clip. */
+  allowOverflow?: boolean
 }) {
   return (
     <div
@@ -32,7 +38,7 @@ export function Zero0Frame({
       style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
       inert={!open}
     >
-      <div className="overflow-hidden">
+      <div className={allowOverflow && open ? "overflow-visible" : "overflow-hidden"}>
         {/* Opacity layer — fades over the SAME 0.8s window as the height move, so the frame
             content dissolves in/out while the stack below slides. */}
         <div

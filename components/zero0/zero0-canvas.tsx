@@ -2469,7 +2469,7 @@ export function Zero0Canvas() {
       className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
-      {/* ── GLUED TOP: live clock ───────��──��───────�����─���───���───────────────────���─
+      {/* ── GLUED TOP: live clock ───────��──��───────�����─���������������───���───────────────────���─
           Permanent top chrome (mirrors the footer's glued-bottom role): the live full
           date + time WITH seconds, top-left. Always present �� for any open entity, and
           regardless of which frames are toggled below. `min-h` reserves its row so the
@@ -2478,15 +2478,30 @@ export function Zero0Canvas() {
           click-and-drag it to MOVE the frameless window (Windows/Linux; a no-op on the web
           and under macOS's native title bar). The window controls opt back out via `no-drag`.
           `justify-between` keeps the live clock left and the min/max/close cluster top-right. */}
+      {/* EXPERIMENT (Loris): the clock band is an ABSOLUTE OVERLAY (removed from flow) pinned to the
+          very top, so the AGENDA dayline below slides up to y=0 and its sun/moon curves bleed UP behind
+          the clock text. A short top-anchored scrim (bg → transparent) keeps the clock legible over the
+          curves. `pointer-events-none` on the band lets dayline hit-testing pass through the empty
+          areas; the clock text + window controls opt back in with `pointer-events-auto`. */}
       <div
-        className="flex min-h-[41px] shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3 text-[10px] font-medium uppercase tracking-wider leading-none tabular-nums text-foreground"
+        className="pointer-events-none absolute inset-x-0 top-0 z-20 flex min-h-[41px] items-center justify-between gap-3 px-4 py-3 text-[10px] font-medium uppercase tracking-wider leading-none tabular-nums text-foreground"
         // `WebkitAppRegion` drives the Electron shell's frameless drag; `data-zero-drag` is the
         // additive marker the WebView2 shell-host reads (WebView2 doesn't honor -webkit-app-region).
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
         data-zero-drag="drag"
       >
-        <span>{topClock}</span>
-        <Zero0WindowControls />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[64px]"
+          style={{
+            background:
+              "linear-gradient(to bottom, var(--background) 0%, color-mix(in oklch, var(--background) 55%, transparent) 55%, transparent 100%)",
+          }}
+        />
+        <span className="pointer-events-auto">{topClock}</span>
+        <span className="pointer-events-auto">
+          <Zero0WindowControls />
+        </span>
       </div>
 
       {/* ── §4 PINS BAND (topmost, just under the clock) ─────────────────────────
@@ -2516,7 +2531,10 @@ export function Zero0Canvas() {
           transition, no per-frame JS). Kept MOUNTED while collapsed so BOTH directions
           animate; `inert` drops it from tab/hit-testing when hidden. */}
       {mounted && (
-        <Zero0Frame open={showAgenda}>
+        // `allowOverflow` lets the planned dayline's sky-bleed curves spill below the AGENDA frame onto
+        // whatever sits directly beneath (§1 when ACTIVITY is hidden). `relative z-0` keeps the bleed
+        // BEHIND §1's chrome, which is `relative z-10` so its (transparent) header paints over the curves.
+        <Zero0Frame open={showAgenda} allowOverflow className="relative z-0">
           <Zero0Agenda
             onOpen={navigateTo}
             onContextMenuEntity={openMenuById}
@@ -2560,9 +2578,12 @@ export function Zero0Canvas() {
           and — like every frame in the stack — collapses with the dep-free grid-rows
           0fr↔1fr animation so the frames below slide up/down. Kept mounted so BOTH
           directions animate; `inert` drops it from tab/hit-testing when hidden. */}
-      <Zero0Frame open={showZeroHeader}>
+      <Zero0Frame open={showZeroHeader} className="relative z-10">
       <header
-        className="relative border-b border-border p-4 text-[10px] leading-relaxed text-muted-foreground tabular-nums"
+        // `backdrop-blur-md` frosts whatever is painted behind §1 — here the dayline's sky-bleed curves,
+        // which overlap §1's top edge (§1 is z-10, the agenda canvas z-0, so this samples the curves).
+        // The header keeps no opaque background, so the blurred curves remain visible through it.
+        className="relative border-b border-border p-4 text-[10px] leading-relaxed text-muted-foreground tabular-nums backdrop-blur-xs"
         // Right-click the header chrome → minimize/maximize this frame (same frame menu as
         // the time frames). Guarded so a right-click on the breadcrumb/siblings (which target
         // an ENTITY) isn't hijacked: only fires when the target didn't handle it itself.
@@ -2647,7 +2668,7 @@ export function Zero0Canvas() {
       </header>
       </Zero0Frame>
 
-      {/* ── ENTITY CONTENT ────────────────────────────────────────────────���────
+      {/* ── ENTITY CONTENT ─────��──────────────────────────────────────────���────
           The open node as raw data: META, then CHILDREN. Recursive — the root
           Individual renders exactly like any other entity. `min-h-0` lets this flex
           child shrink below its content so ONLY this band scrolls — the header,
