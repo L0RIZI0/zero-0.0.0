@@ -2469,7 +2469,7 @@ export function Zero0Canvas() {
       className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
-      {/* ── GLUED TOP: live clock ───────��──��───────�����─�����������───���───────────────────���─
+      {/* ── GLUED TOP: live clock ───────��──��───────�����─�������������───���───────────────────���─
           Permanent top chrome (mirrors the footer's glued-bottom role): the live full
           date + time WITH seconds, top-left. Always present �� for any open entity, and
           regardless of which frames are toggled below. `min-h` reserves its row so the
@@ -2583,7 +2583,7 @@ export function Zero0Canvas() {
         // `backdrop-blur-md` frosts whatever is painted behind §1 — here the dayline's sky-bleed curves,
         // which overlap §1's top edge (§1 is z-10, the agenda canvas z-0, so this samples the curves).
         // The header keeps no opaque background, so the blurred curves remain visible through it.
-        className="relative border-b border-border p-4 text-[10px] leading-relaxed text-muted-foreground tabular-nums backdrop-blur-md"
+        className="relative border-b border-border p-4 text-[10px] leading-relaxed text-muted-foreground tabular-nums backdrop-blur-sm"
         // Right-click the header chrome → minimize/maximize this frame (same frame menu as
         // the time frames). Guarded so a right-click on the breadcrumb/siblings (which target
         // an ENTITY) isn't hijacked: only fires when the target didn't handle it itself.
