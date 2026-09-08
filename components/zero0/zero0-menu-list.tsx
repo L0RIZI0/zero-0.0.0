@@ -151,8 +151,13 @@ function MenuRow({
         />
       )}
       <span>{item.label}</span>
+      {item.hint && (
+        <span aria-hidden className="ml-auto pl-4 text-muted-foreground/50">
+          {item.hint}
+        </span>
+      )}
       {item.current && (
-        <span aria-hidden className="ml-auto pl-3 text-muted-foreground/70">
+        <span aria-hidden className={(item.hint ? "pl-3" : "ml-auto pl-3") + " text-muted-foreground/70"}>
           {"\u2022"}
         </span>
       )}

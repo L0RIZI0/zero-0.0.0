@@ -38,7 +38,9 @@ internal sealed class MenuHost
     private readonly CompositionHost _comp;
     private readonly IntPtr _hwnd;
     private readonly CoreWebView2Environment _env;   // reuse the SHELL env: the overlay is Zero's own UI
-    private readonly string _menuUrl;                // https://zero.local/menu
+    private readonly string _virtualHost;            // "zero.local" — mapped per-controller (see CreateAsync)
+    private readonly string _outDir;                 // static-export folder backing the virtual host
+    private readonly string _menuUrl;                // https://zero.local/menu/
     private readonly Action<string> _log;
     private readonly Action<string> _onSelected;     // relay a picked action id to the renderer
 
@@ -54,11 +56,17 @@ internal sealed class MenuHost
     private bool _visible;
     private bool _ready;              // overlay document loaded + bridge listening
     private JsonElement? _pendingItems; // items to show once the overlay signals ready
+    // Per-open pick + dismiss handlers. The default (renderer relay) is used by window.zero.menu.open;
+    // the CONTENT context-menu path swaps in handlers that drive the WebView2 deferral instead. Reset to
+    // the default whenever a menu closes so a stale content deferral can't leak into the next open.
+    private Action<string>? _pick;    // called with the chosen action id (null ⇒ renderer relay)
+    private Action? _onDismiss;       // called when the menu is dismissed without a pick
 
-    public MenuHost(CompositionHost comp, IntPtr hwnd, CoreWebView2Environment env, string menuUrl,
-        double scale, Action<string> log, Action<string> onSelected)
+    public MenuHost(CompositionHost comp, IntPtr hwnd, CoreWebView2Environment env, string virtualHost,
+        string outDir, double scale, Action<string> log, Action<string> onSelected)
     {
-        _comp = comp; _hwnd = hwnd; _env = env; _menuUrl = menuUrl; _scale = scale;
+        _comp = comp; _hwnd = hwnd; _env = env; _virtualHost = virtualHost; _outDir = outDir;
+        _menuUrl = $"https://{virtualHost}/menu/"; _scale = scale;
         _log = log; _onSelected = onSelected;
     }
 
@@ -85,10 +93,27 @@ internal sealed class MenuHost
 
     // Open the menu at CSS (x,y) with a serialisable MenuItem[] (as the raw JsonElement from the message).
     // Creates the controller on first use, then shows + relays items to the overlay.
-    public async Task OpenAsync(double xCss, double yCss, JsonElement items)
+    public Task OpenAsync(double xCss, double yCss, JsonElement items)
     {
-        _anchorPx = new Point((int)Math.Round(xCss * _scale), (int)Math.Round(yCss * _scale));
+        // window.zero.menu.open path: CSS coords, picks relay to the renderer (default handlers).
+        var anchor = new Point((int)Math.Round(xCss * _scale), (int)Math.Round(yCss * _scale));
+        return ShowAsync(anchor, items, pick: null, onDismiss: null);
+    }
+
+    // Content context-menu path: anchor is already in SHELL PHYSICAL px (the last right-click point), and
+    // the pick/dismiss drive the WebView2 deferral rather than the renderer. Items are the pre-flattened
+    // JSON built from CoreWebView2ContextMenuItem (see ResourceView).
+    public Task OpenNativeAsync(Point anchorPx, JsonElement items, Action<string> pick, Action onDismiss)
+    {
+        return ShowAsync(anchorPx, items, pick, onDismiss);
+    }
+
+    private async Task ShowAsync(Point anchorPx, JsonElement items, Action<string>? pick, Action? onDismiss)
+    {
+        _anchorPx = anchorPx;
         _pendingItems = items.Clone(); // detach from the transient message buffer
+        _pick = pick;
+        _onDismiss = onDismiss;
 
         if (_controller is null)
         {
@@ -114,12 +139,31 @@ internal sealed class MenuHost
         _controller.ShouldDetectMonitorScaleChanges = false;
         _controller.IsVisible = false;
 
+        // Give the overlay a real viewport to lay out + measure in WHILE HIDDEN. A composition controller
+        // with no Bounds has a 0×0 viewport, so the card's getBoundingClientRect would be 0 and the resize
+        // report would keep the menu invisible forever. Full client is fine — it stays IsVisible=false
+        // until SizeAndPlace reveals it shrunk to the fitted card size.
+        try
+        {
+            var c = _comp.Size;
+            _layer.Size = new Vector2(c.Width, c.Height);
+            _controller.Bounds = new Rectangle(0, 0, c.Width, c.Height);
+        }
+        catch { }
+
         var s = _core.Settings;
         s.AreDefaultContextMenusEnabled = false; // no Edge menu inside our own menu
         s.IsStatusBarEnabled = false;
         s.AreBrowserAcceleratorKeysEnabled = false;
         s.IsSwipeNavigationEnabled = false;
         try { _core.Profile.PreferredColorScheme = _scheme; } catch { }
+
+        // CRITICAL: SetVirtualHostNameToFolderMapping is PER-CoreWebView2, not per-environment. The shell
+        // sets it on its own core; this controller is a separate WebView2, so without its OWN mapping
+        // https://zero.local/menu/ resolves to nothing, navigation fails, _ready never flips, and the menu
+        // never appears anywhere. (This was the "no right-click menu works" bug in v0.2.364.)
+        try { _core.SetVirtualHostNameToFolderMapping(_virtualHost, _outDir, CoreWebView2HostResourceAccessKind.Allow); }
+        catch (Exception ex) { _log($"menu vhost map failed: {ex.Message}"); }
 
         // The overlay is a SEPARATE document, so it can't use the shell's window.zero. Inject a minimal
         // window.zeroMenu bridge that matches ZeroMenuBridge (types/zero-desktop.d.ts): onShow receives
@@ -164,7 +208,16 @@ internal sealed class MenuHost
                 SizeAndPlace((int)Math.Round(m.width * _scale), (int)Math.Round(m.height * _scale));
                 break;
             case "action":
-                if (!string.IsNullOrEmpty(m.id)) { try { _onSelected(m.id!); } catch { } }
+                if (!string.IsNullOrEmpty(m.id))
+                {
+                    // A pick both fulfils the open AND closes the menu. Snapshot the per-open handler,
+                    // clear state via Hide (which won't re-fire dismiss because we null _onDismiss first),
+                    // then invoke. Default handler = renderer relay.
+                    var pick = _pick;
+                    _onDismiss = null; // picking is not a dismissal
+                    Hide();
+                    try { (pick ?? _onSelected)(m.id!); } catch { }
+                }
                 break;
             case "dismiss":
                 Hide();
@@ -213,6 +266,13 @@ internal sealed class MenuHost
         _visible = false;
         _pendingItems = null;
         if (_controller is not null) { try { _controller.IsVisible = false; } catch { } }
+        // Fire (and consume) the per-open dismiss handler — for a content menu this completes the
+        // WebView2 deferral with no selection so Chromium doesn't hang waiting. Reset both handlers so
+        // the next open starts from the default (renderer relay).
+        var d = _onDismiss;
+        _onDismiss = null;
+        _pick = null;
+        if (d is not null) { try { d(); } catch { } }
     }
 
     public void Dispose()

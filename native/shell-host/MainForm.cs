@@ -38,6 +38,7 @@ sealed class MainForm : Form
     // first menu.open. When visible it takes mouse-input priority over content in ForwardMouse.
     private MenuHost? _menu;
     private bool _menuHovered; // pointer currently over the menu layer (for one-shot Leave on exit)
+    private Point _lastRightClickPx; // last WM_RBUTTONDOWN in shell space; anchors the content menu overlay
 
     // M4: silent background auto-updater (Velopack). Null on unpackaged dev runs.
     private UpdateService? _updates;
@@ -142,7 +143,10 @@ sealed class MainForm : Form
             };
 
             // Browsed content lives on composition layers above this shell layer (content-on-top parity).
-            _resources = new ResourceHost(_comp, Handle, DeviceDpi / 96.0, PushEvent, LogLine, OnContentCursorChanged);
+            // onContentMenu: a browsed page raised a right-click menu → show it in Zero's style (see
+            // OnContentMenu). Fires only at click time, so _menu (built just below) is available by then.
+            _resources = new ResourceHost(_comp, Handle, DeviceDpi / 96.0, PushEvent, LogLine,
+                OnContentCursorChanged, OnContentMenu);
             _resources.WarmUp(); // overlap the cold content-environment create with shell startup
 
             // M3 branded context-menu overlay. Reuses the SHELL env (it's Zero's own UI, same zero.local
@@ -150,7 +154,9 @@ sealed class MainForm : Form
             // served the shared Zero0MenuList at /menu/ (trailingSlash export → menu/index.html). Its
             // controller is created lazily on the first open. A picked action id is relayed to the renderer
             // over the same event channel the shim listens on (menu.selected).
-            _menu = new MenuHost(_comp, Handle, env, $"https://{VirtualHost}/menu/", DeviceDpi / 96.0,
+            // Pass the SAME virtual host + export dir so the overlay controller can map zero.local on its
+            // OWN core (the mapping is per-WebView2, not per-env — see MenuHost.CreateAsync).
+            _menu = new MenuHost(_comp, Handle, env, VirtualHost, outDir, DeviceDpi / 96.0,
                 LogLine, id => PushEvent("menu.selected", id));
 
             core.Navigate($"https://{VirtualHost}/index.html");
@@ -510,6 +516,12 @@ sealed class MainForm : Form
             if (isDown) _menu.Hide();
         }
 
+        // Remember the last right-button-down point in SHELL space. When browsed content raises
+        // ContextMenuRequested we anchor the branded overlay here — this sidesteps translating the
+        // content layer's own client coords (which, with the M2 park/offset compositing, is exactly what
+        // mispositioned Chromium's native menu). msg 0x0204 == WM_RBUTTONDOWN.
+        if (m.Msg == NativeMethods.WM_RBUTTONDOWN) _lastRightClickPx = pt;
+
         // Pick the target layer: an active button-drag stays on its captured target; otherwise hit-test.
         ResourceView? target = _mouseCaptured ? _mouseCaptureTarget : _resources?.HitTest(pt);
 
@@ -653,6 +665,21 @@ sealed class MainForm : Form
         double x = GetNum(a, "x");
         double y = GetNum(a, "y");
         await _menu.OpenAsync(x, y, items);
+    }
+
+    // M3b: a browsed page raised a context menu. Show its (already-flattened) items in Zero's style,
+    // anchored at the LAST right-click point in shell space — the overlay is the frontmost layer, so it
+    // paints over the content and lands under the cursor. pick/dismiss drive the WebView2 deferral.
+    private void OnContentMenu(string itemsJson, Action<string> pick, Action dismiss)
+    {
+        if (_menu is null) { dismiss(); return; }
+        JsonElement items;
+        // Clone out of the JsonDocument immediately: its RootElement is invalidated once the document is
+        // disposed/GC'd, and OpenNativeAsync clones only AFTER a possible async controller-create await.
+        try { using var doc = JsonDocument.Parse(itemsJson); items = doc.RootElement.Clone(); }
+        catch { dismiss(); return; }
+        if (items.ValueKind != JsonValueKind.Array || items.GetArrayLength() == 0) { dismiss(); return; }
+        _ = _menu.OpenNativeAsync(_lastRightClickPx, items, pick, dismiss);
     }
 
     private void ResourceSetTheme(JsonElement a)

@@ -52,15 +52,30 @@ export function Zero0MenuOverlay() {
       return () => off?.()
     }
     if (typeof window !== "undefined" && window.location.search.includes("menutest")) {
-      setItems([
-        { type: "header", label: "Show" },
-        { type: "item", id: "rail:session", label: "Session rail", checkmark: true },
-        { type: "item", id: "rail:access", label: "Access rail", checkmark: false },
-        { type: "divider" },
-        { type: "header", label: "Sky" },
-        { type: "item", id: "sky:sun", label: "Sun", checkmark: true, keepOpen: true },
-        { type: "item", id: "sky:moon", label: "Moon", checkmark: false, keepOpen: true },
-      ])
+      // `?menutest=content` mirrors a browsed page's flattened native menu (labels + shortcut hints +
+      // a disabled row + a submenu) to eyeball the M3b content-menu styling; default = the band menu.
+      if (window.location.search.includes("content")) {
+        setItems([
+          { type: "item", id: "cmd:1", label: "Back", hint: "Alt+Left arrow", disabled: true },
+          { type: "item", id: "cmd:2", label: "Refresh", hint: "Ctrl+R" },
+          { type: "divider" },
+          { type: "item", id: "cmd:3", label: "Save as", hint: "Ctrl+S" },
+          { type: "item", id: "cmd:4", label: "Print", hint: "Ctrl+P" },
+          { type: "divider" },
+          { type: "submenu", label: "More tools", items: [{ type: "item", id: "cmd:5", label: "Name window" }] },
+          { type: "item", id: "cmd:6", label: "Inspect" },
+        ])
+      } else {
+        setItems([
+          { type: "header", label: "Show" },
+          { type: "item", id: "rail:session", label: "Session rail", checkmark: true },
+          { type: "item", id: "rail:access", label: "Access rail", checkmark: false },
+          { type: "divider" },
+          { type: "header", label: "Sky" },
+          { type: "item", id: "sky:sun", label: "Sun", checkmark: true, keepOpen: true },
+          { type: "item", id: "sky:moon", label: "Moon", checkmark: false, keepOpen: true },
+        ])
+      }
     }
   }, [])
 
