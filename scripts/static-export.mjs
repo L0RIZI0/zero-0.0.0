@@ -46,18 +46,15 @@ async function restore() {
   }
 }
 
-// The export uses `assetPrefix: './'` (relative) so it can be served from the virtual host root.
-// That resolves correctly ONLY for the root document (out/index.html at https://zero.local/): its
-// `./_next/…` → https://zero.local/_next/… ✓. But a SUBPATH document such as the M3 menu overlay
-// (out/menu/index.html served at https://zero.local/menu/) resolves `./_next/…` to
-// https://zero.local/menu/_next/… which does NOT exist — so the page's JS/CSS 404, React never
-// boots, and the overlay never renders (the "no right-click menu anywhere" bug on v0.2.365).
-//
-// The `_next/` bundle only ever lives at the export root, so rewrite the menu document's relative
-// `./_next/` (and `./favicon`-style root assets) to ROOT-ABSOLUTE `/_next/`, which resolves under the
-// virtual host at any depth. We touch ONLY this subpath document, so the shell root and the frozen
-// version snapshots keep their relative paths untouched. Next's runtime derives its chunk publicPath
-// from where its own bootstrap script loaded, so fixing the initial script srcs cascades to lazy chunks.
+// SAFETY NET. The export now uses `assetPrefix: '/'` (root-absolute), so every document — root AND
+// subpaths like the M3 menu overlay (out/menu/index.html) — already emits `/_next/…`, which resolves
+// under the virtual host at any depth (including the Turbopack runtime's own chunk-loading base). This
+// pass therefore normally finds nothing to do (it logs "no ./_next/ refs"). It's kept only to catch a
+// regression: if the prefix ever reverts to relative `./`, a subpath document's `./_next/…` would
+// resolve to `/menu/_next/…` → 404, its chunks would fail, and React would never hydrate the overlay
+// (the v0.2.365→369 "menu never renders" saga). Rewriting the menu document's `./_next/` → `/_next/`
+// keeps that specific page's INITIAL scripts alive; note it can't fix the runtime chunk's baked-in base,
+// which is exactly why the real fix is the absolute assetPrefix, not this pass.
 async function fixSubpathAssets() {
   const menuHtml = path.join(outDir, "menu", "index.html")
   if (!(await exists(menuHtml))) {

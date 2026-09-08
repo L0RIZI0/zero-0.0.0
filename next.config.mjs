@@ -20,11 +20,15 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_ZERO_ELECTRON: isElectron ? "1" : "",
   },
-  // Electron loads files off a custom `app://` protocol, so emit a fully static
-  // export with relative asset paths. `output: 'export'` requires the app to be
-  // client-renderable end-to-end — Zero already is (client components + local
-  // persistence, no server routes), which is exactly why it ports cleanly.
-  ...(isElectron ? { output: "export", assetPrefix: "./", trailingSlash: true } : {}),
+  // The packaged shell serves this export from the virtual-host ROOT (https://zero.local/ mapped to
+  // `out/` via SetVirtualHostNameToFolderMapping — the old app:// protocol is gone). Use a ROOT-ABSOLUTE
+  // asset prefix so `/_next/…` resolves identically at every route depth. Relative `./` only worked for
+  // the root document (`/index.html`); a subpath route like the M3 menu overlay (`/menu/index.html`)
+  // resolved `./_next/` to `/menu/_next/` → 404, so its runtime chunks never loaded and React never
+  // hydrated (the "card never rendered" bug on v0.2.369). `output: 'export'` requires the app to be
+  // client-renderable end-to-end — Zero already is (client components + local persistence, no server
+  // routes), which is exactly why it ports cleanly.
+  ...(isElectron ? { output: "export", assetPrefix: "/", trailingSlash: true } : {}),
   // The v0 preview is served from a cross-origin host (e.g.
   // *.vusercontent.net). Next.js 16 blocks cross-origin access to dev
   // resources (the webpack/HMR client runtime) by default, which prevents the
