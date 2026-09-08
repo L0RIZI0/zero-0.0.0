@@ -150,7 +150,9 @@ sealed class MainForm : Form
             // served the shared Zero0MenuList at /menu/ (trailingSlash export → menu/index.html). Its
             // controller is created lazily on the first open. A picked action id is relayed to the renderer
             // over the same event channel the shim listens on (menu.selected).
-            _menu = new MenuHost(_comp, Handle, env, $"https://{VirtualHost}/menu/", DeviceDpi / 96.0,
+            // Pass the SAME virtual host + export dir so the overlay controller can map zero.local on its
+            // OWN core (the mapping is per-WebView2, not per-env — see MenuHost.CreateAsync).
+            _menu = new MenuHost(_comp, Handle, env, VirtualHost, outDir, DeviceDpi / 96.0,
                 LogLine, id => PushEvent("menu.selected", id));
 
             core.Navigate($"https://{VirtualHost}/index.html");
