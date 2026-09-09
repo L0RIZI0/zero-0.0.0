@@ -116,7 +116,16 @@ sealed class UpdateService
     public void RestartToApply()
     {
         if (_pending is null) return;
-        try { _mgr.ApplyUpdatesAndRestart(_pending); }
+        try
+        {
+            // SILENT apply. ApplyUpdatesAndRestart spawns Velopack's Update.exe applier WITHOUT --silent,
+            // which pops a Win32 "Installing Update" progress dialog and plays the Windows notification
+            // chime (Loris: "sounds like an error"). WaitExitThenApplyUpdates(silent:true) suppresses that
+            // window entirely; Update.exe then waits for THIS process to exit before it folder-swaps and
+            // relaunches, so we exit ourselves right after handing off.
+            _mgr.WaitExitThenApplyUpdates(_pending, silent: true, restart: true);
+            Environment.Exit(0);
+        }
         catch (Exception ex)
         {
             _log("[updates] apply failed: " + ex.Message);

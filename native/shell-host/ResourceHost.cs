@@ -390,8 +390,10 @@ internal sealed class ResourceView : IDisposable
 
             // Map CommandId → the target menu item so a pick can set SelectedCommandId. We only carry leaf
             // commands and submenus across; separators become dividers.
+            var __sw = System.Diagnostics.Stopwatch.StartNew();
             var byId = new Dictionary<string, CoreWebView2ContextMenuItem>();
             string json = FlattenContextMenu(e.MenuItems, byId);
+            _log($"content menu: flattened {byId.Count} cmds in {__sw.ElapsedMilliseconds}ms (right-click→handoff)");
 
             bool done = false;
             void Complete(int? commandId)

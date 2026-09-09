@@ -62,6 +62,7 @@ internal sealed class MenuHost
     private Action<string>? _pick;    // called with the chosen action id (null ⇒ renderer relay)
     private Action? _onDismiss;       // called when the menu is dismissed without a pick
     private int _openGen;             // bumped on every open AND on hide; stale measure-polls bail on mismatch
+    private System.Diagnostics.Stopwatch? _openWatch; // times open→shown to quantify perceived menu lag
 
     public MenuHost(CompositionHost comp, IntPtr hwnd, CoreWebView2Environment env, string virtualHost,
         string outDir, double scale, Action<string> log, Action<string> onSelected)
@@ -96,6 +97,18 @@ internal sealed class MenuHost
         if (_core is not null) { try { _core.Profile.PreferredColorScheme = scheme; } catch { } }
     }
 
+    // Called from MainForm on WM_SIZE (AFTER _comp.Resize, so _comp.Size is already the new client size).
+    // The parked layer is positioned relative to the client width AT PARK TIME, so widening the window can
+    // bring the off-screen park back on-screen — showing the stale menu (Loris, .371: "white area with a
+    // right-click menu on it" after resizing). If the menu is open, close it (a resize is a fair dismiss);
+    // otherwise re-park against the NEW client size so it stays off-screen.
+    public void OnHostResized()
+    {
+        if (_controller is null) return;
+        if (_visible) Hide();
+        else ParkForMeasuring();
+    }
+
     // Open the menu at CSS (x,y) with a serialisable MenuItem[] (as the raw JsonElement from the message).
     // Creates the controller on first use, then shows + relays items to the overlay.
     public Task OpenAsync(double xCss, double yCss, JsonElement items)
@@ -115,6 +128,7 @@ internal sealed class MenuHost
 
     private async Task ShowAsync(Point anchorPx, JsonElement items, Action<string>? pick, Action? onDismiss)
     {
+        _openWatch = System.Diagnostics.Stopwatch.StartNew(); // measure open→shown (see "menu shown" log)
         _anchorPx = anchorPx;
         _pendingItems = items.Clone(); // detach from the transient message buffer
         _pick = pick;
@@ -149,6 +163,11 @@ internal sealed class MenuHost
         _controller.RootVisualTarget = _layer;
         _controller.RasterizationScale = _scale;
         _controller.ShouldDetectMonitorScaleChanges = false;
+        // Transparent so the overlay layer NEVER paints an opaque (default white) fill — only the menu card
+        // itself is opaque (bg-background). Without this, any time the parked/oversized layer becomes
+        // visible (e.g. a window resize brings the off-screen park back on-screen) it flashed a white
+        // rectangle with the stale menu in it (Loris, .371).
+        try { _controller.DefaultBackgroundColor = System.Drawing.Color.Transparent; } catch { }
 
         // The overlay MEASURES itself (getBoundingClientRect in a layout effect) and reports its card size
         // so we can shrink the layer to fit. A composition controller with IsVisible=false SUSPENDS layout
@@ -305,7 +324,7 @@ internal sealed class MenuHost
         int y = Math.Min(Math.Max(0, _anchorPx.Y), maxY);
         _boundsPx = new Rectangle(x, y, wPx, hPx);
         _visible = true;
-        _log($"menu shown at {x},{y} size {wPx}x{hPx}");
+        _log($"menu shown at {x},{y} size {wPx}x{hPx} (+{_openWatch?.ElapsedMilliseconds ?? -1}ms from open)");
         ApplyBounds();
     }
 

@@ -410,6 +410,7 @@ sealed class MainForm : Form
                     try { _shell.Bounds = new Rectangle(0, 0, ClientSize.Width, ClientSize.Height); } catch { }
                 }
                 _comp?.Resize(ClientSize);
+                _menu?.OnHostResized(); // re-park/close the menu overlay so a stale parked layer can't reappear
                 // Mirror maximize-state transitions to the renderer. (Native maximize with WS_CAPTION
                 // already respects the monitor work area, so no manual WM_GETMINMAXINFO clamp is needed.)
                 bool max = WindowState == FormWindowState.Maximized;

@@ -80,14 +80,23 @@ export function Zero0MenuOverlay() {
     }
   }, [])
 
-  // Report our measured size so the host can size the composition layer to exactly fit the card
-  // (the layer is otherwise transparent and click-through outside the card).
+  // Report our measured size so the host can size the composition layer to exactly fit the card (the layer
+  // is otherwise transparent and click-through outside the card). A ResizeObserver keeps it in sync with
+  // LIVE height changes — expanding the "More tools" submenu grows the card, but that state lives inside
+  // Zero0MenuList so `items` doesn't change and a one-shot measure wouldn't re-fire; the host layer then
+  // stayed too short and clipped the lower rows (Loris, .371: "Inspect option is cropped out").
   useLayoutEffect(() => {
     const el = cardRef.current
     const bridge = typeof window !== "undefined" ? window.zeroMenu : undefined
     if (!el || !bridge || !items) return
-    const r = el.getBoundingClientRect()
-    bridge.resize({ width: Math.ceil(r.width), height: Math.ceil(r.height) })
+    const report = () => {
+      const r = el.getBoundingClientRect()
+      bridge.resize({ width: Math.ceil(r.width), height: Math.ceil(r.height) })
+    }
+    report()
+    const ro = new ResizeObserver(report)
+    ro.observe(el)
+    return () => ro.disconnect()
   }, [items])
 
   // Escape dismisses; so does a pointer down on the transparent backdrop (outside the card).
