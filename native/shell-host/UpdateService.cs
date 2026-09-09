@@ -120,11 +120,15 @@ sealed class UpdateService
         {
             // SILENT apply. ApplyUpdatesAndRestart spawns Velopack's Update.exe applier WITHOUT --silent,
             // which pops a Win32 "Installing Update" progress dialog and plays the Windows notification
-            // chime (Loris: "sounds like an error"). WaitExitThenApplyUpdates(silent:true) suppresses that
-            // window entirely; Update.exe then waits for THIS process to exit before it folder-swaps and
-            // relaunches, so we exit ourselves right after handing off.
+            // chime (Loris: disliked the sound, not the feedback — the renderer now shows its OWN branded
+            // "updating to vX" overlay instead, see zero0-update-indicator.tsx). WaitExitThenApplyUpdates
+            // (silent:true) suppresses that window; Update.exe then waits for THIS process to exit before
+            // it folder-swaps and relaunches.
             _mgr.WaitExitThenApplyUpdates(_pending, silent: true, restart: true);
-            Environment.Exit(0);
+            // Don't exit instantly: give the renderer a beat to paint its overlay first (the swap runs
+            // AFTER we exit, with no window, so that overlay is the only feedback the user sees). Non-
+            // blocking so the UI thread stays live to render it; Update.exe is already waiting on us.
+            System.Threading.Tasks.Task.Delay(700).ContinueWith(_ => Environment.Exit(0));
         }
         catch (Exception ex)
         {

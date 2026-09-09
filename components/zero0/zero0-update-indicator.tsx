@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { createPortal } from "react-dom"
 
 /**
  * Minimal, dependency-free update affordance for the root `/0` footer.
@@ -155,17 +156,50 @@ export function Zero0UpdateIndicator() {
             : label
 
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      title={title}
-      aria-label={title}
-      className="inline-flex items-center gap-1.5 rounded-sm border border-border px-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-70"
+    <>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onClick}
+        title={title}
+        aria-label={title}
+        className="inline-flex items-center gap-1.5 rounded-sm border border-border px-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-70"
+      >
+        {phase === "available" || phase === "error" ? <DownloadGlyph /> : <RestartGlyph spinning={spinning} />}
+        <span className="tabular-nums">{label}</span>
+      </button>
+      {/* Zero-branded apply overlay. Replaces Velopack's default Win32 "Installing Update" dialog (which
+          played the Windows chime — Loris disliked the sound, not the feedback). The native side now
+          applies SILENTLY and exits after a short delay; this overlay is the user-facing "it's updating"
+          beat shown in Zero's own style. The actual folder-swap happens after the app exits (no window),
+          so this shows briefly until the app closes and relaunches on the new version. */}
+      {phase === "restarting" && typeof document !== "undefined"
+        ? createPortal(<UpdatingOverlay version={ver} />, document.body)
+        : null}
+    </>
+  )
+}
+
+/** Full-window branded "updating…" overlay shown while the silent apply hands off + restarts. */
+function UpdatingOverlay({ version }: { version: string | null }) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-background/85 backdrop-blur-sm"
+      style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
-      {phase === "available" || phase === "error" ? <DownloadGlyph /> : <RestartGlyph spinning={spinning} />}
-      <span className="tabular-nums">{label}</span>
-    </button>
+      <div className="flex flex-col items-center gap-4 rounded-md border border-border bg-background px-10 py-8">
+        <RestartGlyph spinning />
+        <div className="text-center">
+          <div className="text-sm text-foreground">{version ? `updating to ${version}` : "updating"}</div>
+          <div className="mt-1 text-xs text-muted-foreground">Zero will restart automatically…</div>
+        </div>
+        <div className="h-0.5 w-48 overflow-hidden rounded-full bg-muted">
+          <div className="h-full w-full animate-pulse rounded-full bg-foreground/50" />
+        </div>
+      </div>
+    </div>
   )
 }
 
