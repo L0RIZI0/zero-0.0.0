@@ -57,6 +57,7 @@ export function Zero0MenuOverlay() {
       if (window.location.search.includes("content")) {
         setItems([
           { type: "item", id: "cmd:1", label: "Back", hint: "Alt+Left arrow", disabled: true },
+          { type: "item", id: "cmd:1b", label: "Forward", hint: "Alt+Right arrow", disabled: true },
           { type: "item", id: "cmd:2", label: "Refresh", hint: "Ctrl+R" },
           { type: "divider" },
           { type: "item", id: "cmd:3", label: "Save as", hint: "Ctrl+S" },

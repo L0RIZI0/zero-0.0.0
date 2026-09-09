@@ -115,6 +115,12 @@ sealed class MainForm : Form
             s.AreDevToolsEnabled = true; // keep F12 during the migration
             s.IsSwipeNavigationEnabled = false;
             s.AreBrowserAcceleratorKeysEnabled = false; // no Ctrl+P/Ctrl+F etc. leaking into shell UI
+            // Zero's chrome must NOT respond to Ctrl+wheel / trackpad-pinch with WebView2's built-in page
+            // zoom — that scaled the whole shell UI (a WebView2-migration regression; pre-migration it was
+            // off). Zero owns that gesture itself: its own zoom features are DOM `wheel` handlers keyed on
+            // e.ctrlKey ({ passive:false } + preventDefault, e.g. zero0-content.tsx / the dayline), which
+            // fire regardless of this setting. So disabling the built-in zoom is strictly cleaner.
+            s.IsZoomControlEnabled = false;
 
             // Serve the static export as a real https origin (localStorage/IndexedDB get a stable origin).
             string? outDir = ResolveOutDir();
